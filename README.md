@@ -1,4 +1,4 @@
-# z16
+# Z16
 A 16-bit RISC-V Inspired ISA
 
 ## Highlights
@@ -35,8 +35,8 @@ Registers|32 x 32-bit registers| 8 x 16-bit registers|
 <img src="docs/instr.png" alt="z16 Instructions Table" style="width:65%; height:auto;">
 
 ## The Assembler
-The repo contains a simple 2-pass assembler for ZC16 ISA. The assembler is very similar to RISC-V ones. AT the moment, the assembler supports only ZC16 true instructions. The recommended assembly program skeleton is given below:
-```ARMASM
+The repo contains a simple 2-pass assembler for Z16 ISA. The assembler is very similar to RISC-V ones. At the moment, the assembler supports only Z16 true instructions. The recommended assembly program skeleton is given below:
+```GAS
 # Add some comments to describe the program
 
 # the TEXT Section
