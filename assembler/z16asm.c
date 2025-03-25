@@ -734,15 +734,25 @@
                  }
              } else if(inst->type == INST_J) {
                  // J‑type: PC‑relative jump.
+                 // Format: f | imm[9:4] | rd | imm[3:1] | opcode.
                  if(line->operands == NULL) {
                      fprintf(stderr, "Error on line %d: Missing operand for jump\n", line->lineNo);
                      exit(1);
                  }
-                 char *token = strtok(line->operands, " \t");
-                 if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
-                     exit(1);
+                 char *token = strtok(line->operands, ", \t");
+                 int rd = 0;
+                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) {
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected register operand for jump\n", line->lineNo);
+                         exit(1);
+                     }
+                     rd = parseRegister(token);
+                     token = strtok(NULL, ", \t");
                  }
+                if(!token) {
+                    fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
+                    exit(1);
+                }
                  Symbol *sym = findSymbol(token);
                  if(!sym) {
                      fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
@@ -750,14 +760,18 @@
                  }
                  int currPC = line->address;
                  int targetPC = sym->address;
-                 int offset = (targetPC - currPC) >> 1;
+                 int offset = (targetPC - currPC);
                  if(offset < -128 || offset > 127) {
                      fprintf(stderr, "Error on line %d: Jump offset out of range\n", line->lineNo);
                      exit(1);
                  }
+                 int offset3To1 = (offset >> 1) & 0x7;
+                 int offset15To10 = (offset >> 10) & 0x3F;
                  int f = (cmpIgnoreCase(inst->mnemonic, "jal") == 0) ? 1 : 0;
                  machineWord |= (f & 0x1) << 15;
-                 machineWord |= ((offset & 0xFF) << 7);
+                 machineWord |= ((offset15To10) << 9);
+                 machineWord |= ((rd & 0x7) << 6);
+                 machineWord |= ((offset3To1) << 3);
                  machineWord |= (inst->opcode & 0xF);
              } else if(inst->type == INST_U) {
                  // U‑type: Format: f | imm[15:10] | rd | imm[9:7] | opcode.
