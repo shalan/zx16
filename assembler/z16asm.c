@@ -19,54 +19,11 @@
  *
  * =============================================================================
  *
- * Functional and Non-Functional Requirements for the Z16 16‑Bit Assembler
+ * Functional Requirements for the Z16 16‑Bit Assembler
  *
- * Functional Requirements:
- *   1. Two‑Pass Assembly Process:
- *      - The assembler shall perform a first pass to build a symbol table and assign addresses
- *        to labels and directives.
- *      - A second pass shall generate machine code for instructions and process data directives,
- *        using the computed addresses.
- *
- *   2. Assembly Language Parsing:
- *      - The assembler shall support directives (.text, .data, .org, .asciiz, .byte, .word, .space)
- *        and the complete set of Z16 instructions (R‑, I‑, B‑, L‑, J‑, U‑, and System instructions).
- *
- *   3. Case‑Insensitive Processing:
- *      - All source elements (mnemonics, registers, directives, labels) shall be processed
- *        without sensitivity to letter case.
- *
- *   4. Numeric Constant Formats:
- *      - The assembler shall support C‑language style numeric constants:
- *          - Decimal (e.g., 42)
- *          - Octal (e.g., 052)
- *          - Hexadecimal (e.g., 0x2A or 0X2A)
- *          - Binary (e.g., 0b101010 or 0B101010)
- *      - It shall also support %hi(...) and %lo(...) expressions to extract parts of constants.
- *
- *   5. Multiple Values in Data Directives:
- *      - The .byte and .word directives shall accept a comma‑separated list of values.
- *      - The assembler shall allocate memory for each element (1 byte for .byte, 2 bytes for .word).
- *
- *   6. Output Generation:
- *      - The assembler shall generate a GNU‑style listing file (.lst) that displays source lines,
- *        computed addresses, and machine code.
- *      - It shall produce a binary file containing the assembled machine code.
- *        • By default, the binary file name is derived from the assembly source file (e.g., replacing .asm with .bin).
- *        • The user may override the binary file name using the "-o" command‑line switch.
- *
- *   7. Command‑Line Interface:
- *      - The assembler shall support switches including:
- *          • -v for verbose output (symbol table and memory usage).
- *          • -d for debug messages.
- *          • -o <filename> to specify an alternate binary output file.
- *
- *   8. Error Handling:
- *      - The assembler shall detect and report errors (e.g., undefined or duplicate labels, 
- *        invalid instructions, missing operands, and out‑of‑range immediates) with clear messages.
+ * [See specification details in the attached Z16 ISA Specification PDF]
  *
  */
-
 
  #include <stdio.h>
  #include <stdlib.h>
@@ -271,8 +228,7 @@
      return -1;
  }
  
- // Parse an immediate value. In addition to the standard C styles (decimal, octal, hex),
- // this function now also supports binary constants prefixed with "0b" or "0B", as well as %hi() and %lo() expressions.
+ // Parse an immediate value. Supports decimal, octal, hex, binary, %hi(...) and %lo(...).
  int parseImmediate(const char *token) {
      if(strncmp(token, "%hi(", 4)==0) {
          const char *p = token + 4;
@@ -296,7 +252,7 @@
          int value = (int)strtol(numberStr, NULL, 0);
          return value & 0x7F;
      }
-     // Support binary constants with a "0b" or "0B" prefix.
+     // Support binary constants with "0b" or "0B" prefix.
      if(token[0]=='0' && (token[1]=='b' || token[1]=='B'))
          return (int)strtol(token+2, NULL, 2);
      return (int)strtol(token, NULL, 0);
@@ -306,8 +262,7 @@
  // Source Line Structures and Parsing
  // -----------------------
  
- // We add an extra field "elementSize" to indicate how many bytes each code element occupies.
- // For instructions and .word, elementSize = 2; for .byte and .asciiz, elementSize = 1.
+ // Each code element’s size: for instructions and .word, 2 bytes; for .byte and .asciiz, 1 byte.
  typedef struct {
      int lineNo;                      // source line number
      char original[MAX_LINE_LENGTH];  // original source text
@@ -508,7 +463,7 @@
                      s++;
                  }
                  int len = (int)strlen(s) + 1;
-                 // For .asciiz, we allocate one 16-bit word per two characters.
+                 // For .asciiz, allocate one 16-bit word per two characters.
                  line->codeCount = (len + 1) / 2;
                  line->code = (uint16_t *)malloc(line->codeCount * sizeof(uint16_t));
                  // Pack characters into words (little-endian).
@@ -572,6 +527,8 @@
              }
              uint16_t machineWord = 0;
              if(inst->type == INST_R) {
+                 // R‑type: Expect two register operands.
+                 // Special-case "jr" and "jalr": if only one operand is given, set second register to 0.
                  char *ops = line->operands;
                  if(!ops) {
                      fprintf(stderr, "Error on line %d: Missing operands for '%s'\n", line->lineNo, line->mnemonic);
@@ -583,18 +540,27 @@
                      exit(1);
                  }
                  int reg1 = parseRegister(token);
+                 int reg2;
                  token = strtok(NULL, ", \t");
                  if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected second register operand\n", line->lineNo);
-                     exit(1);
+                     // For jr and jalr, if second operand is missing, set reg2 = 0.
+                     if(cmpIgnoreCase(inst->mnemonic, "jr") == 0 ||
+                        cmpIgnoreCase(inst->mnemonic, "jalr") == 0) {
+                         reg2 = 0;
+                     } else {
+                         fprintf(stderr, "Error on line %d: Expected second register operand\n", line->lineNo);
+                         exit(1);
+                     }
+                 } else {
+                     reg2 = parseRegister(token);
                  }
-                 int reg2 = parseRegister(token);
                  machineWord |= (inst->funct4 & 0xF) << 12;
                  machineWord |= (reg2 & 0x7) << 9;
                  machineWord |= (reg1 & 0x7) << 6;
                  machineWord |= (inst->funct3 & 0x7) << 3;
                  machineWord |= (inst->opcode & 0x7);
              } else if(inst->type == INST_I) {
+                 // I‑type: Expect register, immediate.
                  char *ops = line->operands;
                  if(!ops) {
                      fprintf(stderr, "Error on line %d: Missing operands for '%s'\n", line->lineNo, line->mnemonic);
@@ -624,39 +590,150 @@
                  machineWord |= ((inst->funct3 & 0x7) << 3);
                  machineWord |= (inst->opcode & 0x7);
              } else if(inst->type == INST_B) {
+                 // Branch instructions.
                  char *ops = line->operands;
                  if(!ops) {
                      fprintf(stderr, "Error on line %d: Missing operands for branch\n", line->lineNo);
                      exit(1);
                  }
+                 int offset, rs1, rs2;
                  char *token = strtok(ops, ", \t");
-                 if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected register operand for branch\n", line->lineNo);
+                 if(cmpIgnoreCase(line->mnemonic, "bz") == 0 || cmpIgnoreCase(line->mnemonic, "bnz") == 0) {
+                     // Single-register branch.
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected register operand for branch\n", line->lineNo);
+                         exit(1);
+                     }
+                     rs1 = parseRegister(token);
+                     token = strtok(NULL, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected label for branch\n", line->lineNo);
+                         exit(1);
+                     }
+                     Symbol *sym = findSymbol(token);
+                     if(!sym) {
+                         fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
+                         exit(1);
+                     }
+                     offset = (sym->address - (line->address + 2)) >> 1;
+                     if(offset < -8 || offset > 7) {
+                         fprintf(stderr, "Error on line %d: Branch offset out of range\n", line->lineNo);
+                         exit(1);
+                     }
+                     rs2 = 0;
+                     machineWord |= ((offset & 0xF) << 12);
+                     machineWord |= ((rs2 & 0x7) << 9);
+                     machineWord |= ((rs1 & 0x7) << 6);
+                     machineWord |= ((inst->funct3 & 0x7) << 3);
+                     machineWord |= (inst->opcode & 0x7);
+                 } else {
+                     // Two-register branch.
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected first register operand for branch\n", line->lineNo);
+                         exit(1);
+                     }
+                     rs1 = parseRegister(token);
+                     token = strtok(NULL, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected second register operand for branch\n", line->lineNo);
+                         exit(1);
+                     }
+                     rs2 = parseRegister(token);
+                     token = strtok(NULL, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected label for branch\n", line->lineNo);
+                         exit(1);
+                     }
+                     Symbol *sym = findSymbol(token);
+                     if(!sym) {
+                         fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
+                         exit(1);
+                     }
+                     offset = (sym->address - (line->address + 2)) >> 1;
+                     if(offset < -8 || offset > 7) {
+                         fprintf(stderr, "Error on line %d: Branch offset out of range\n", line->lineNo);
+                         exit(1);
+                     }
+                     machineWord |= ((offset & 0xF) << 12);
+                     machineWord |= ((rs2 & 0x7) << 9);
+                     machineWord |= ((rs1 & 0x7) << 6);
+                     machineWord |= ((inst->funct3 & 0x7) << 3);
+                     machineWord |= (inst->opcode & 0x7);
+                 }
+             } else if(inst->type == INST_L) {
+                 // Load/Store instructions.
+                 char *ops = line->operands;
+                 if(!ops) {
+                     fprintf(stderr, "Error on line %d: Missing operands for '%s'\n", line->lineNo, inst->mnemonic);
                      exit(1);
                  }
-                 int rs1 = parseRegister(token);
-                 token = strtok(NULL, ", \t");
-                 if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected label for branch\n", line->lineNo);
+                 if(cmpIgnoreCase(inst->mnemonic, "lb") == 0 ||
+                    cmpIgnoreCase(inst->mnemonic, "lw") == 0 ||
+                    cmpIgnoreCase(inst->mnemonic, "lbu") == 0) {
+                     // Load: format: rd, offset(rs)
+                     char *token = strtok(ops, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected destination register for load\n", line->lineNo);
+                         exit(1);
+                     }
+                     int rd = parseRegister(token);
+                     token = strtok(NULL, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected memory operand for load\n", line->lineNo);
+                         exit(1);
+                     }
+                     char *parenOpen = strchr(token, '(');
+                     char *parenClose = strchr(token, ')');
+                     if(!parenOpen || !parenClose) {
+                         fprintf(stderr, "Error on line %d: Memory operand format error, expected offset(register)\n", line->lineNo);
+                         exit(1);
+                     }
+                     *parenOpen = '\0';
+                     int imm = parseImmediate(token);
+                     char *regStr = parenOpen + 1;
+                     *parenClose = '\0';
+                     int rs = parseRegister(regStr);
+                     machineWord |= ((imm & 0xF) << 12);
+                     machineWord |= ((rs & 0x7) << 9);
+                     machineWord |= ((rd & 0x7) << 6);
+                     machineWord |= ((inst->funct3 & 0x7) << 3);
+                     machineWord |= (inst->opcode & 0x7);
+                 } else if(cmpIgnoreCase(inst->mnemonic, "sb") == 0 ||
+                           cmpIgnoreCase(inst->mnemonic, "sw") == 0) {
+                     // Store: format: rs2, offset(rs1)
+                     char *token = strtok(ops, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected source register for store\n", line->lineNo);
+                         exit(1);
+                     }
+                     int rs2 = parseRegister(token);
+                     token = strtok(NULL, ", \t");
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected memory operand for store\n", line->lineNo);
+                         exit(1);
+                     }
+                     char *parenOpen = strchr(token, '(');
+                     char *parenClose = strchr(token, ')');
+                     if(!parenOpen || !parenClose) {
+                         fprintf(stderr, "Error on line %d: Memory operand format error, expected offset(register)\n", line->lineNo);
+                         exit(1);
+                     }
+                     *parenOpen = '\0';
+                     int imm = parseImmediate(token);
+                     char *regStr = parenOpen + 1;
+                     *parenClose = '\0';
+                     int rs1 = parseRegister(regStr);
+                     machineWord |= ((imm & 0xF) << 12);
+                     machineWord |= ((rs2 & 0x7) << 9);
+                     machineWord |= ((rs1 & 0x7) << 6);
+                     machineWord |= ((inst->funct3 & 0x7) << 3);
+                     machineWord |= (inst->opcode & 0x7);
+                 } else {
+                     fprintf(stderr, "Error on line %d: Unknown load/store mnemonic '%s'\n", line->lineNo, inst->mnemonic);
                      exit(1);
                  }
-                 Symbol *sym = findSymbol(token);
-                 if(!sym) {
-                     fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
-                     exit(1);
-                 }
-                 int currPC = line->address;
-                 int targetPC = sym->address;
-                 int offset = (targetPC - (currPC + 2)) >> 1;
-                 if(offset < -8 || offset > 7) {
-                     fprintf(stderr, "Error on line %d: Branch offset out of range\n", line->lineNo);
-                     exit(1);
-                 }
-                 machineWord |= ((offset & 0xF) << 12);
-                 machineWord |= ((rs1 & 0x7) << 6);
-                 machineWord |= ((inst->funct3 & 0x7) << 3);
-                 machineWord |= (inst->opcode & 0x7);
              } else if(inst->type == INST_J) {
+                 // J‑type: PC‑relative jump.
                  if(line->operands == NULL) {
                      fprintf(stderr, "Error on line %d: Missing operand for jump\n", line->lineNo);
                      exit(1);
@@ -683,24 +760,28 @@
                  machineWord |= ((offset & 0xFF) << 7);
                  machineWord |= (inst->opcode & 0xF);
              } else if(inst->type == INST_U) {
+                 // U‑type: Format: f | imm[15:10] | rd | imm[9:7] | opcode.
                  char *ops = line->operands;
                  char *token = strtok(ops, ", \t");
                  if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected register for U‑type\n", line->lineNo);
+                     fprintf(stderr, "Error on line %d: Expected register for U‑type instruction\n", line->lineNo);
                      exit(1);
                  }
                  int rd = parseRegister(token);
                  token = strtok(NULL, ", \t");
                  if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected immediate for U‑type\n", line->lineNo);
+                     fprintf(stderr, "Error on line %d: Expected immediate for U‑type instruction\n", line->lineNo);
                      exit(1);
                  }
-                 int imm = parseImmediate(token);
-                 imm = (imm & 0x1FF);
-                 machineWord |= ((imm & 0x1FF) << 6);
-                 machineWord |= ((rd & 0x7) << 3);
+                 int imm_val = parseImmediate(token);
+                 int upper = (imm_val >> 3) & 0x3F;  // bits for imm[15:10]
+                 int lower = imm_val & 0x7;          // bits for imm[9:7]
+                 machineWord |= (upper << 9);
+                 machineWord |= ((rd & 0x7) << 6);
+                 machineWord |= (lower << 3);
                  machineWord |= (inst->opcode & 0x7);
              } else if(inst->type == INST_S) {
+                 // System instructions.
                  if(line->operands == NULL) {
                      fprintf(stderr, "Error on line %d: ecall missing operand\n", line->lineNo);
                      exit(1);
