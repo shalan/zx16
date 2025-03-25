@@ -2,7 +2,6 @@
 
 Z16 is a compact, 16-bit RISC-style instruction set architecture inspired by RISC-V RV32I, designed for small, efficient embedded systems. It supports 64 KB of byte-addressable memory and uses a fixed 16-bit instruction width. The ISA is optimized for simplicity and compact encoding, using a 2-register format for most operations.
 
----
 
 ## Key Features
 
@@ -14,8 +13,6 @@ Z16 is a compact, 16-bit RISC-style instruction set architecture inspired by RIS
 - **All branches and jumps are PC-relative**, except for **JALR**
 - **Immediate instructions** support up to 7-bit signed immediates
 - `li` (load immediate) is a true instruction
-
----
 
 ## Register ABI
 
@@ -30,7 +27,7 @@ Z16 is a compact, 16-bit RISC-style instruction set architecture inspired by RIS
 | x6  | a0  | Function arg / return val   |
 | x7  | a1  | Function arg / return val   |
 
-## RV32I vs. Z16
+## Comparing RV32I to Z16
 ||RV32I|Z16|
 |-|-----|---|
 |Architecture |32-bit RISC ISA| 16-bit RISC ISA|
@@ -53,15 +50,11 @@ Registers|32 x 32-bit registers| 8 x 16-bit registers|
 - **Operation:** `rs1 = rs1 op rs2`
 - **Examples:** `ADD`, `SUB`, `SLL`, `SRL`, `AND`, `OR`, `XOR`, `SLT`, `SLTU`, `SRA`, `JR`, `JALR`, `MV`
 
----
-
 ### 2. I-Type (Immediate)
 - **Opcode:** `001`
 - **Format:** `imm[6:0] | rs1 | funct3 | opcode`
 - **Operation:** `rs1 = rs1 op imm`
 - **Examples:** `ADDI`, `SLTI`, `ORI`, `ANDI`, `SLLI`, `SRLI`, `SRAI`, `LI`
-
----
 
 ### 3. B-Type (Branch)
 - **Opcode:** `010`
@@ -69,42 +62,32 @@ Registers|32 x 32-bit registers| 8 x 16-bit registers|
 - **Examples:** `BEQ`, `BNE`, `BZ`, `BNZ`, `BLT`, `BGE`, `BLTU`, `BGEU`  
 - **Note:** `BZ` and `BNZ` only use `rs1`, compared to zero
 
----
-
 ### 4. S-Type (Store)
 - **Opcode:** `011`
 - **Format:** `imm[3:0] | rs2 | rs1 | funct3 | opcode`
 - **Examples:** `SB`, `SW`
-
----
 
 ### 5. L-Type (Load)
 - **Opcode:** `100`
 - **Format:** `imm[3:0] | rs2 | rd | funct3 | opcode`
 - **Examples:** `LB`, `LW`, `LBU`
 
----
-
 ### 6. J-Type (Jump)
 - **Opcode:** `101`
 - **Format:** `f | imm[9:4] | rd | imm[3:1] | opcode`
 - **Examples:** `J`, `JAL`
-
----
 
 ### 7. U-Type (Upper Immediate)
 - **Opcode:** `110`
 - **Format:** `f | imm[15:10] | rd | imm[9:7] | opcode`
 - **Examples:** `LUI`, `AUIPC`
 
----
-
 ### 8. SYS-Type (System)
 - **Opcode:** `111`
 - **Format:** `service[11:0] | funct3 | opcode`
 - **Examples:** `ECALL`
 
----
+
 
 ## Special Semantics
 
@@ -115,7 +98,7 @@ Registers|32 x 32-bit registers| 8 x 16-bit registers|
 - Jumps and branches are PC-relative
 - Loads/stores use base+offset addressing
 
----
+
 
 ## Calling Convention Summary
 
