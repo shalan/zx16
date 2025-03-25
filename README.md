@@ -1,5 +1,5 @@
 # Z16
-A 16-bit RISC-V Inspired ISA
+A 16-bit RISC-V Inspired "Educational" ISA.
 
 ## Highlights
 - Registers: 8 general-purpose registers (x0–x7), each 16 bits wide.
