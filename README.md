@@ -174,3 +174,6 @@ To invoke the assembler, use:
 - `-o` : Specify the binary file name (optional)
 
 In addition to the binary file, the assembler outputs the list file (.lst) that combines the source and machine codes.
+
+## Contribution
+Please refer to the contribution guide [here](docs/contribute.md).
