@@ -159,7 +159,7 @@
      {"and",   INST_R, 0, 5, 0x0},
      {"xor",   INST_R, 0, 6, 0x4},
      {"mv",    INST_R, 0, 7, 0x0},
-     {"jr",    INST_R, 0, 7, 0x0},
+     {"jr",    INST_R, 0, 0, 0x4},
      {"jalr",  INST_R, 0, 0, 0x8},
      {"addi",  INST_I, 1, 0, 0},
      {"slti",  INST_I, 1, 1, 0},
