@@ -787,7 +787,7 @@
                      exit(1);
                  }
                  int svc = parseImmediate(line->operands);
-                 machineWord = (svc << 4) | 0x7;
+                 machineWord = (svc << 6) | 0x7;
              }
              line->codeCount = 1;
              line->code = (uint16_t *)malloc(sizeof(uint16_t));
