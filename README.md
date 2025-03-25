@@ -73,3 +73,12 @@ B:
 C:
     .space  200
 ```
+
+To invoke the assembler, use:
+
+`./z16asm [-v] [-d] [-o <binary_file>] <sourcefile>`
+- `-d` : Output debugging messages as it runs
+- `-v` : Dump the symol table as well as the Section sizes.
+- `-o` : Specify the binary file name (optional)
+
+In addition to the binary file, the assembler outputs the list file (.lst) that combines the source and machine codes.
