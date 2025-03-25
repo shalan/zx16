@@ -191,7 +191,7 @@
      {"ecall", INST_S, 7, 0, 0},
      {NULL, 0, 0, 0, 0} // end marker
  };
- 
+
  // Lookup instruction definition (case-insensitive).
  InstructionDef* lookupInstruction(const char *mnemonic) {
      for (int i = 0; instructionSet[i].mnemonic != NULL; i++) {
@@ -200,11 +200,11 @@
      }
      return NULL;
  }
- 
+
  // -----------------------
  // Register and Immediate Parsing
  // -----------------------
- 
+
  // Convert a register name (e.g. "X3" or "s0") to its register number.
  int parseRegister(const char *token) {
      if(token[0]=='x' || token[0]=='X') {
@@ -227,7 +227,7 @@
      exit(1);
      return -1;
  }
- 
+
  // Parse an immediate value. Supports decimal, octal, hex, binary, %hi(...) and %lo(...).
  int parseImmediate(const char *token) {
      if(strncmp(token, "%hi(", 4)==0) {
@@ -257,11 +257,11 @@
          return (int)strtol(token+2, NULL, 2);
      return (int)strtol(token, NULL, 0);
  }
- 
+
  // -----------------------
  // Source Line Structures and Parsing
  // -----------------------
- 
+
  // Each code element’s size: for instructions and .word, 2 bytes; for .byte and .asciiz, 1 byte.
  typedef struct {
      int lineNo;                      // source line number
@@ -275,22 +275,22 @@
      int codeCount;                   // number of code elements
      int elementSize;                 // size in bytes for each code element (1 or 2)
  } Line;
- 
+
  Line *lines[MAX_LINES];
  int lineCount = 0;
- 
+
  // -----------------------
  // Global Location Counters and Section Tracking
  // -----------------------
- 
+
  int loc_text = 0;  // text section location counter (in bytes)
  int loc_data = 0;  // data section location counter (in bytes)
  Section currentSection = SECTION_NONE;
- 
+
  // -----------------------
  // Source Line Parsing Functions
  // -----------------------
- 
+
  Line* newLine(int lineNo, const char *src) {
      Line *l = (Line *)malloc(sizeof(Line));
      if(!l) { perror("malloc"); exit(1); }
@@ -306,7 +306,7 @@
      l->elementSize = 0;
      return l;
  }
- 
+
  void freeLine(Line *l) {
      if(l) {
          if(l->mnemonic) free(l->mnemonic);
@@ -315,7 +315,7 @@
          free(l);
      }
  }
- 
+
  // Parse a source line into label, mnemonic, and operands.
  // Comments (starting with '#' or ';') are removed and the mnemonic is converted to lower-case.
  void parseSourceLine(Line *line) {
@@ -353,11 +353,11 @@
          }
      }
  }
- 
+
  // -----------------------
  // Pass 1: Build Symbol Table and Assign Addresses
  // -----------------------
- 
+
  void pass1(FILE *fp) {
      char srcLine[MAX_LINE_LENGTH];
      int currentLineNo = 0;
@@ -372,7 +372,7 @@
              line->address = loc_data;
          else
              line->address = 0;
-         
+
          if(line->mnemonic && line->mnemonic[0]=='.') {
              if(cmpIgnoreCase(line->mnemonic, ".text") == 0) {
                  currentSection = SECTION_TEXT;
@@ -440,11 +440,11 @@
      }
      rewind(fp);
  }
- 
+
  // -----------------------
  // Pass 2: Encode Instructions and Process Data Directives
  // -----------------------
- 
+
  void pass2() {
      loc_text = 0;
      loc_data = 0;
@@ -773,13 +773,18 @@
                      fprintf(stderr, "Error on line %d: Expected immediate for U‑type instruction\n", line->lineNo);
                      exit(1);
                  }
+
                  int imm_val = parseImmediate(token);
+                 int f = (cmpIgnoreCase(inst->mnemonic, "auipc") == 0) ? 1 : 0;  //Differentiate
+
                  int upper = (imm_val >> 3) & 0x3F;  // bits for imm[15:10]
                  int lower = imm_val & 0x7;          // bits for imm[9:7]
+                 machineWord |= (f & 0x1) << 15;   //Store f
                  machineWord |= (upper << 9);
                  machineWord |= ((rd & 0x7) << 6);
                  machineWord |= (lower << 3);
                  machineWord |= (inst->opcode & 0x7);
+
              } else if(inst->type == INST_S) {
                  // System instructions.
                  if(line->operands == NULL) {
@@ -797,11 +802,11 @@
          }
      }
  }
- 
+
  // -----------------------
  // Listing File Generation (.lst)
  // -----------------------
- 
+
  void generateListing(const char *sourceFilename) {
      char listingFilename[256];
      strcpy(listingFilename, sourceFilename);
@@ -838,11 +843,11 @@
      fclose(lst);
      printf("Listing file generated: %s\n", listingFilename);
  }
- 
+
  // -----------------------
  // Dump Binary: Write Memory Image to Output File
  // -----------------------
- 
+
  void dumpBinary(const char *binFilename) {
      int maxAddr = 0;
      for (int i = 0; i < lineCount; i++) {
@@ -854,7 +859,7 @@
      }
      if(maxAddr == 0)
          maxAddr = 1;  // write at least one byte
- 
+
      unsigned char *memoryImage = (unsigned char *)calloc(maxAddr, 1);
      if(!memoryImage) {
           perror("calloc");
@@ -885,11 +890,11 @@
      free(memoryImage);
      printf("Binary file generated: %s\n", binFilename);
  }
- 
+
  // -----------------------
  // Verbose Dump: Symbol Table and Memory Usage
  // -----------------------
- 
+
  void dumpVerbose() {
      printf("\n--- Symbol Table ---\n");
      Symbol *cur = symbolTable;
@@ -902,11 +907,11 @@
      printf("  Text section: %d bytes\n", loc_text);
      printf("  Data section: %d bytes\n", loc_data);
  }
- 
+
  // -----------------------
  // Main Function and Command-Line Argument Parsing
  // -----------------------
- 
+
  int main(int argc, char **argv) {
      int verbose = 0;
      int debugModeFlag = 0;
