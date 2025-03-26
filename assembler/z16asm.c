@@ -734,31 +734,62 @@
                  }
              } else if(inst->type == INST_J) {
                  // J‑type: PC‑relative jump.
+                 // Format: f | imm[9:4] | rd | imm[3:1] | opcode.
                  if(line->operands == NULL) {
                      fprintf(stderr, "Error on line %d: Missing operand for jump\n", line->lineNo);
                      exit(1);
                  }
-                 char *token = strtok(line->operands, " \t");
-                 if(!token) {
-                     fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
-                     exit(1);
+                 char *token = strtok(line->operands, ", \t");
+                 int rd = 0;
+                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) {
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected register operand for jump\n", line->lineNo);
+                         exit(1);
+                     }
+                     rd = parseRegister(token);
+                     token = strtok(NULL, ", \t");
                  }
+                if(!token) {
+                    fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
+                    exit(1);
+                }
                  Symbol *sym = findSymbol(token);
                  if(!sym) {
                      fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
                      exit(1);
                  }
+                 // Calculate PC-relative offset
                  int currPC = line->address;
                  int targetPC = sym->address;
-                 int offset = (targetPC - currPC) >> 1;
-                 if(offset < -128 || offset > 127) {
+                 int offset = (targetPC - currPC) / 2;  // Divide by 2 for instruction alignment
+
+                 // Check offset range (-512 to +511 for signed 10-bit offset)
+                 if (offset < -512 || offset > 511) {
                      fprintf(stderr, "Error on line %d: Jump offset out of range\n", line->lineNo);
                      exit(1);
                  }
-                 int f = (cmpIgnoreCase(inst->mnemonic, "jal") == 0) ? 1 : 0;
-                 machineWord |= (f & 0x1) << 15;
-                 machineWord |= ((offset & 0xFF) << 7);
-                 machineWord |= (inst->opcode & 0xF);
+
+                 // Extract offset fields
+                 uint16_t offset9to1 = offset & 0x3FF;  // All 10 bits of the offset
+
+                 // Determine f field (0 for j, 1 for jal)
+                 uint16_t f = cmpIgnoreCase(inst->mnemonic, "jal") == 0 ? 1 : 0;
+
+                 // Construct machine word
+                 machineWord = 0;
+                 machineWord |= (f & 0x1) << 15;             // f field (bit 15)
+                 machineWord |= ((offset9to1 & 0x3F0) << 3); // Offset bits [9:4] (bits 14:9)
+                 machineWord |= (rd & 0x7) << 6;             // rd (bits 8:6)
+                 machineWord |= ((offset9to1 & 0x7) << 3);   // Offset bits [3:1] (bits 5:3)
+                 machineWord |= inst->opcode & 0x7;          // Opcode (bits [2:0])
+                 int count = countValues(line->operands);
+
+                 line->codeCount = count;
+                 line->code = malloc(sizeof(uint16_t));
+                 printf("machineWord: 0x%04X (binary: %016b)\n", machineWord, machineWord); //debug
+
+                 line->code[0] = machineWord;
+
              } else if(inst->type == INST_U) {
                  // U‑type: Format: f | imm[15:10] | rd | imm[9:7] | opcode.
                  char *ops = line->operands;
@@ -787,7 +818,7 @@
                      exit(1);
                  }
                  int svc = parseImmediate(line->operands);
-                 machineWord = (svc << 4) | 0x7;
+                 machineWord = (svc << 6) | 0x7;
              }
              line->codeCount = 1;
              line->code = (uint16_t *)malloc(sizeof(uint16_t));
