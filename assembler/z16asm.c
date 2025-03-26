@@ -766,10 +766,10 @@
                      exit(1);
                  }
                  int offset3To1 = (offset >> 1) & 0x7;
-                 int offset15To10 = (offset >> 10) & 0x3F;
+                 int offset9To4 = (offset >> 4) & 0x3F;
                  int f = (cmpIgnoreCase(inst->mnemonic, "jal") == 0) ? 1 : 0;
                  machineWord |= (f & 0x1) << 15;
-                 machineWord |= ((offset15To10) << 9);
+                 machineWord |= ((offset9To4) << 9);
                  machineWord |= ((rd & 0x7) << 6);
                  machineWord |= ((offset3To1) << 3);
                  machineWord |= (inst->opcode & 0xF);
