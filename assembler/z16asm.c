@@ -158,8 +158,8 @@
      {"or",    INST_R, 0, 4, 0x1},
      {"and",   INST_R, 0, 5, 0x0},
      {"xor",   INST_R, 0, 6, 0x4},
-     {"mv",    INST_R, 0, 7, 0x8},
-     {"jr",    INST_R, 0, 7, 0x0},
+     {"mv",    INST_R, 0, 7, 0x0},
+     {"jr",    INST_R, 0, 0, 0x4},
      {"jalr",  INST_R, 0, 0, 0x8},
      {"addi",  INST_I, 1, 0, 0},
      {"slti",  INST_I, 1, 1, 0},
@@ -169,7 +169,7 @@
      {"srai",  INST_I, 1, 3, 0},
      {"ori",   INST_I, 1, 4, 0},
      {"andi",  INST_I, 1, 5, 0},
-     {"xori",  INST_I, 1, 6, 0},
+     {"xor",   INST_R, 0, 6, 0},
      {"li",    INST_I, 1, 7, 0},
      {"beq",   INST_B, 2, 0, 0},
      {"bne",   INST_B, 2, 1, 0},
@@ -179,11 +179,11 @@
      {"bge",   INST_B, 2, 5, 0},
      {"bltu",  INST_B, 2, 6, 0},
      {"bgeu",  INST_B, 2, 7, 0},
-     {"lb",    INST_L, 3, 0, 0},
-     {"lw",    INST_L, 3, 2, 0},
-     {"lbu",   INST_L, 3, 4, 0},
+     {"lb",    INST_L, 4, 0, 0},
+     {"lw",    INST_L, 4, 1, 0},
+     {"lbu",   INST_L, 4, 4, 0},
      {"sb",    INST_L, 3, 0, 0},
-     {"sw",    INST_L, 3, 2, 0},
+     {"sw",    INST_L, 3, 1, 0},
      {"j",     INST_J, 5, 0, 0},
      {"jal",   INST_J, 5, 0, 0},
      {"lui",   INST_U, 6, 0, 0},
@@ -806,7 +806,7 @@
                      exit(1);
                  }
                  int svc = parseImmediate(line->operands);
-                 machineWord = (svc << 4) | 0x7;
+                 machineWord = (svc << 6) | 0x7;
              }
              line->codeCount = 1;
              line->code = (uint16_t *)malloc(sizeof(uint16_t));
