@@ -30,23 +30,23 @@
  #include <string.h>
  #include <ctype.h>
  #include <stdint.h>
- 
+
  #define MAX_LINE_LENGTH 256
  #define MAX_LABEL_LENGTH 64
  #define MAX_LINES 2048
  // Total memory is 64KB
  #define MEM_SIZE 65536
- 
+
  // -----------------------
  // Utility Functions
  // -----------------------
- 
+
  // Convert a string in-place to lower-case.
  void toLowerStr(char *str) {
      for (; *str; str++)
          *str = tolower((unsigned char)*str);
  }
- 
+
  // Compare two strings case-insensitively.
  int cmpIgnoreCase(const char* s1, const char* s2) {
      while(*s1 && *s2) {
@@ -59,7 +59,7 @@
      }
      return tolower((unsigned char)*s1) - tolower((unsigned char)*s2);
  }
- 
+
  // Trim whitespace from both ends of a string.
  void trim(char *s) {
      char *p = s;
@@ -71,7 +71,7 @@
          end--;
      }
  }
- 
+
  // Count comma-separated values in a directive operand string.
  int countValues(const char *operands) {
      int count = 0;
@@ -84,22 +84,22 @@
      }
      return count;
  }
- 
+
  // -----------------------
  // Symbol Table Structures and Functions
  // -----------------------
- 
+
  typedef enum { SECTION_NONE, SECTION_TEXT, SECTION_DATA } Section;
- 
+
  typedef struct Symbol {
      char name[MAX_LABEL_LENGTH]; // stored in lower-case
      int address;                 // address where the label is defined
      Section section;             // TEXT or DATA
      struct Symbol *next;         // chaining
  } Symbol;
- 
+
  Symbol *symbolTable = NULL;
- 
+
  // Add a symbol to the symbol table (the name is stored in lower-case).
  int addSymbol(const char *name, int address, Section sec) {
      Symbol *cur = symbolTable;
@@ -121,7 +121,7 @@
      symbolTable = newSym;
      return 0;
  }
- 
+
  // Lookup a symbol by name (case-insensitive).
  Symbol* findSymbol(const char *name) {
      Symbol *cur = symbolTable;
@@ -132,13 +132,13 @@
      }
      return NULL;
  }
- 
+
  // -----------------------
  // Instruction Encoding Structures and Table
  // -----------------------
- 
+
  typedef enum { INST_R, INST_I, INST_B, INST_L, INST_J, INST_U, INST_S } InstType;
- 
+
  typedef struct {
      char *mnemonic;    // stored in lower-case
      InstType type;     // instruction type
@@ -146,7 +146,7 @@
      int funct3;        // funct3 field when applicable
      int funct4;        // funct4 field for R-type instructions
  } InstructionDef;
- 
+
  InstructionDef instructionSet[] = {
      {"add",   INST_R, 0, 0, 0x0},
      {"sub",   INST_R, 0, 0, 0x1},
@@ -159,8 +159,7 @@
      {"and",   INST_R, 0, 5, 0x0},
      {"xor",   INST_R, 0, 6, 0x4},
      {"mv",    INST_R, 0, 7, 0x8},
-     {"jr",    INST_R, 0, 7, 0x0},
-     {"jalr",  INST_R, 0, 0, 0x8},
+     {"jr",    INST_R, 0, 0, 0x4},     {"jalr",  INST_R, 0, 0, 0x8},
      {"addi",  INST_I, 1, 0, 0},
      {"slti",  INST_I, 1, 1, 0},
      {"sltui", INST_I, 1, 2, 0},
@@ -179,19 +178,18 @@
      {"bge",   INST_B, 2, 5, 0},
      {"bltu",  INST_B, 2, 6, 0},
      {"bgeu",  INST_B, 2, 7, 0},
-     {"lb",    INST_L, 3, 0, 0},
-     {"lw",    INST_L, 3, 2, 0},
-     {"lbu",   INST_L, 3, 4, 0},
+    {"lb",    INST_L, 4, 0, 0},
+    {"lw",    INST_L, 4, 1, 0},
+    {"lbu",   INST_L, 4, 4, 0},
      {"sb",    INST_L, 3, 0, 0},
-     {"sw",    INST_L, 3, 2, 0},
-     {"j",     INST_J, 5, 0, 0},
+     {"sw",    INST_L, 3, 1, 0},     {"j",     INST_J, 5, 0, 0},
      {"jal",   INST_J, 5, 0, 0},
      {"lui",   INST_U, 6, 0, 0},
      {"auipc", INST_U, 6, 0, 0},
      {"ecall", INST_S, 7, 0, 0},
      {NULL, 0, 0, 0, 0} // end marker
  };
- 
+
  // Lookup instruction definition (case-insensitive).
  InstructionDef* lookupInstruction(const char *mnemonic) {
      for (int i = 0; instructionSet[i].mnemonic != NULL; i++) {
@@ -200,11 +198,11 @@
      }
      return NULL;
  }
- 
+
  // -----------------------
  // Register and Immediate Parsing
  // -----------------------
- 
+
  // Convert a register name (e.g. "X3" or "s0") to its register number.
  int parseRegister(const char *token) {
      if(token[0]=='x' || token[0]=='X') {
@@ -227,7 +225,7 @@
      exit(1);
      return -1;
  }
- 
+
  // Parse an immediate value. Supports decimal, octal, hex, binary, %hi(...) and %lo(...).
  int parseImmediate(const char *token) {
      if(strncmp(token, "%hi(", 4)==0) {
@@ -257,11 +255,11 @@
          return (int)strtol(token+2, NULL, 2);
      return (int)strtol(token, NULL, 0);
  }
- 
+
  // -----------------------
  // Source Line Structures and Parsing
  // -----------------------
- 
+
  // Each code element’s size: for instructions and .word, 2 bytes; for .byte and .asciiz, 1 byte.
  typedef struct {
      int lineNo;                      // source line number
@@ -275,22 +273,22 @@
      int codeCount;                   // number of code elements
      int elementSize;                 // size in bytes for each code element (1 or 2)
  } Line;
- 
+
  Line *lines[MAX_LINES];
  int lineCount = 0;
- 
+
  // -----------------------
  // Global Location Counters and Section Tracking
  // -----------------------
- 
+
  int loc_text = 0;  // text section location counter (in bytes)
  int loc_data = 0;  // data section location counter (in bytes)
  Section currentSection = SECTION_NONE;
- 
+
  // -----------------------
  // Source Line Parsing Functions
  // -----------------------
- 
+
  Line* newLine(int lineNo, const char *src) {
      Line *l = (Line *)malloc(sizeof(Line));
      if(!l) { perror("malloc"); exit(1); }
@@ -306,7 +304,7 @@
      l->elementSize = 0;
      return l;
  }
- 
+
  void freeLine(Line *l) {
      if(l) {
          if(l->mnemonic) free(l->mnemonic);
@@ -315,7 +313,7 @@
          free(l);
      }
  }
- 
+
  // Parse a source line into label, mnemonic, and operands.
  // Comments (starting with '#' or ';') are removed and the mnemonic is converted to lower-case.
  void parseSourceLine(Line *line) {
@@ -353,11 +351,11 @@
          }
      }
  }
- 
+
  // -----------------------
  // Pass 1: Build Symbol Table and Assign Addresses
  // -----------------------
- 
+
  void pass1(FILE *fp) {
      char srcLine[MAX_LINE_LENGTH];
      int currentLineNo = 0;
@@ -372,7 +370,7 @@
              line->address = loc_data;
          else
              line->address = 0;
-         
+
          if(line->mnemonic && line->mnemonic[0]=='.') {
              if(cmpIgnoreCase(line->mnemonic, ".text") == 0) {
                  currentSection = SECTION_TEXT;
@@ -440,11 +438,11 @@
      }
      rewind(fp);
  }
- 
+
  // -----------------------
  // Pass 2: Encode Instructions and Process Data Directives
  // -----------------------
- 
+
  void pass2() {
      loc_text = 0;
      loc_data = 0;
@@ -543,10 +541,11 @@
                  int reg2;
                  token = strtok(NULL, ", \t");
                  if(!token) {
-                     // For jr and jalr, if second operand is missing, set reg2 = 0.
+                     // For jr, if second operand is missing, set destination register = 0.
                      if(cmpIgnoreCase(inst->mnemonic, "jr") == 0 ||
                         cmpIgnoreCase(inst->mnemonic, "jalr") == 0) {
-                         reg2 = 0;
+                         reg2 = reg1;
+                         reg1 = 0;
                      } else {
                          fprintf(stderr, "Error on line %d: Expected second register operand\n", line->lineNo);
                          exit(1);
@@ -734,11 +733,21 @@
                  }
              } else if(inst->type == INST_J) {
                  // J‑type: PC‑relative jump.
+                 // Format: f | imm[9:4] | rd | imm[3:1] | opcode.
                  if(line->operands == NULL) {
                      fprintf(stderr, "Error on line %d: Missing operand for jump\n", line->lineNo);
                      exit(1);
                  }
-                 char *token = strtok(line->operands, " \t");
+                 char *token = strtok(line->operands, ", \t");
+                 int rd = 0;
+                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) {
+                     if(!token) {
+                         fprintf(stderr, "Error on line %d: Expected register operand for jump\n", line->lineNo);
+                         exit(1);
+                     }
+                     rd = parseRegister(token);
+                     token = strtok(NULL, ", \t");
+                 }
                  if(!token) {
                      fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
                      exit(1);
@@ -750,14 +759,18 @@
                  }
                  int currPC = line->address;
                  int targetPC = sym->address;
-                 int offset = (targetPC - currPC) >> 1;
+                 int offset = (targetPC - currPC);
                  if(offset < -128 || offset > 127) {
                      fprintf(stderr, "Error on line %d: Jump offset out of range\n", line->lineNo);
                      exit(1);
                  }
+                 int offset3To1 = (offset >> 1) & 0x7;
+                 int offset9To4 = (offset >> 4) & 0x3F;
                  int f = (cmpIgnoreCase(inst->mnemonic, "jal") == 0) ? 1 : 0;
                  machineWord |= (f & 0x1) << 15;
-                 machineWord |= ((offset & 0xFF) << 7);
+                 machineWord |= ((offset9To4) << 9);
+                 machineWord |= ((rd & 0x7) << 6);
+                 machineWord |= ((offset3To1) << 3);
                  machineWord |= (inst->opcode & 0xF);
              } else if(inst->type == INST_U) {
                  // U‑type: Format: f | imm[15:10] | rd | imm[9:7] | opcode.
@@ -787,7 +800,7 @@
                      exit(1);
                  }
                  int svc = parseImmediate(line->operands);
-                 machineWord = (svc << 4) | 0x7;
+                 machineWord = (svc << 6) | 0x7;
              }
              line->codeCount = 1;
              line->code = (uint16_t *)malloc(sizeof(uint16_t));
