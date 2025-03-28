@@ -136,9 +136,9 @@
  // -----------------------
  // Instruction Encoding Structures and Table
  // -----------------------
- 
+
  typedef enum { INST_R, INST_I, INST_B, INST_L, INST_J, INST_U, INST_S } InstType;
- 
+
  typedef struct {
      char *mnemonic;    // stored in lower-case
      InstType type;     // instruction type
@@ -146,7 +146,7 @@
      int funct3;        // funct3 field when applicable
      int funct4;        // funct4 field for R-type instructions
  } InstructionDef;
- 
+
  InstructionDef instructionSet[] = {
      {"add",   INST_R, 0, 0, 0x0},
      {"sub",   INST_R, 0, 0, 0x1},
@@ -615,7 +615,7 @@
                          fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
                          exit(1);
                      }
-                     offset = (sym->address - (line->address + 2)) >> 1;
+                     offset = (sym->address - (line->address)) >> 1; //Using exact current instruction's address
                      if(offset < -8 || offset > 7) {
                          fprintf(stderr, "Error on line %d: Branch offset out of range\n", line->lineNo);
                          exit(1);
