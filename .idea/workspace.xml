@@ -13,7 +13,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="55d3b189-674e-4b62-8ebd-6c2720b651a9" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/assembler/z16asm.c" beforeDir="false" afterPath="$PROJECT_DIR$/assembler/z16asm.c" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/assembler/examples/xori_test.asm" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -44,7 +44,7 @@
     "cf.first.check.clang-format": "false",
     "cidr.known.project.marker": "true",
     "git-widget-placeholder": "fix-xori-instruction",
-    "last_opened_file_path": "C:/Users/Sama/OneDrive/Desktop/z16",
+    "last_opened_file_path": "C:/Users/Sama/OneDrive/Desktop/z16/assembler/examples",
     "node.js.detected.package.eslint": "true",
     "node.js.detected.package.tslint": "true",
     "node.js.selected.package.eslint": "(autodetect)",
@@ -53,6 +53,11 @@
     "vue.rearranger.settings.migration": "true"
   }
 }]]></component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\Sama\OneDrive\Desktop\z16\assembler\examples" />
+    </key>
+  </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -63,7 +68,7 @@
       <updated>1743964580775</updated>
       <workItem from="1743964582683" duration="1247000" />
       <workItem from="1743966400319" duration="5000" />
-      <workItem from="1743966422697" duration="15000" />
+      <workItem from="1743966422697" duration="420000" />
     </task>
     <servers />
   </component>
