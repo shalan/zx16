@@ -13,6 +13,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="55d3b189-674e-4b62-8ebd-6c2720b651a9" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/assembler/examples/arithmetic_test.asm" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/assembler/z16asm.c" beforeDir="false" afterPath="$PROJECT_DIR$/assembler/z16asm.c" afterDir="false" />
     </list>
@@ -44,7 +45,7 @@
     &quot;RunOnceActivity.readMode.enableVisualFormatting&quot;: &quot;true&quot;,
     &quot;cf.first.check.clang-format&quot;: &quot;false&quot;,
     &quot;cidr.known.project.marker&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;fix-j-extraction&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;fix-data-section&quot;,
     &quot;last_opened_file_path&quot;: &quot;C:/Users/Sama/OneDrive/Desktop/z16/assembler/examples&quot;,
     &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
     &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
