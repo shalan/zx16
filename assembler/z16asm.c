@@ -739,20 +739,26 @@
                      fprintf(stderr, "Error on line %d: Missing operand for jump\n", line->lineNo);
                      exit(1);
                  }
-                 char *token = strtok(line->operands, ", \t");
+                 char *token = strtok(line->operands, ", \t"); //creates a token for the register/label (depends j or jal)
+                 char *tokenLab = strtok(NULL, ", \t"); //creates a token for the label
                  int rd = 0;
-                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) {
-                     if(!token) {
+                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) { //it is jal
+                     if(!token) { //no first token so no tokens at all
                          fprintf(stderr, "Error on line %d: Expected register operand for jump\n", line->lineNo);
                          exit(1);
                      }
-                     rd = parseRegister(token);
-                     token = strtok(NULL, ", \t");
+                     if(!tokenLab) {
+                         rd = 1; //if line->operands has one argument, assume register to be ra
+                     }
+                     else{
+                         rd = parseRegister(token);
+                         token = tokenLab;
+                     }
                  }
                 if(!token) {
                     fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
                     exit(1);
-                }
+                 }
                  Symbol *sym = findSymbol(token);
                  if(!sym) {
                      fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
