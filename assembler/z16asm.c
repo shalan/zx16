@@ -557,16 +557,20 @@ int parseImmediate(const char *token) {
                  int reg2;
                  token = strtok(NULL, ", \t");
                  if(!token) {
-                     // For jr and jalr, if second operand is missing, set reg2 = 0.
-                     if(cmpIgnoreCase(inst->mnemonic, "jr") == 0 ||
-                        cmpIgnoreCase(inst->mnemonic, "jalr") == 0) {
-                         reg2 = 0;
+                    // Only one operand given, check if it's "jr" or "jalr"
+                    if(cmpIgnoreCase(inst->mnemonic, "jr") == 0) {
+                         reg2 = reg1;
                      } else {
                          fprintf(stderr, "Error on line %d: Expected second register operand\n", line->lineNo);
                          exit(1);
                      }
                  } else {
-                     reg2 = parseRegister(token);
+                    if(cmpIgnoreCase(inst->mnemonic, "jr") == 0) {
+                        fprintf(stderr, "Error on line %d: Unexpected second operand for 'jr'\n", line->lineNo);
+                        exit(1); 
+                    } else {
+                        reg2 = parseRegister(token);
+                    }
                  }
                  machineWord |= (inst->funct4 & 0xF) << 12;
                  machineWord |= (reg2 & 0x7) << 9;
