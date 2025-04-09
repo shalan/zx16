@@ -465,28 +465,33 @@ int parseImmediate(const char *token) {
                      loc_text = line->address;
                  else if(currentSection == SECTION_DATA && line->section==SECTION_DATA)
                      loc_data = line->address;
-             } else if(cmpIgnoreCase(line->mnemonic, ".asciiz") == 0) {
-                 char *s = line->operands;
-                 if(s[0]=='"' && s[strlen(s)-1]=='"') {
-                     s[strlen(s)-1] = '\0';
-                     s++;
-                 }
-                 int len = (int)strlen(s) + 1;
-                 // For .asciiz, allocate one 16-bit word per two characters.
-                 line->codeCount = (len + 1) / 2;
-                 line->code = (uint16_t *)malloc(line->codeCount * sizeof(uint16_t));
-                 // Pack characters into words (little-endian).
-                 for (int j = 0; j < line->codeCount; j++) {
-                     uint16_t word = 0;
-                     int index = j * 2;
-                     if(index < len)
-                         word |= ((unsigned char)s[index]);
-                     if(index+1 < len)
-                         word |= (((unsigned char)s[index+1]) << 8);
-                     line->code[j] = word;
-                 }
-                 loc_data += len;
-             } else if(cmpIgnoreCase(line->mnemonic, ".byte") == 0) {
+             }else if(cmpIgnoreCase(line->mnemonic, ".asciiz") == 0) {  char *s = line->operands;
+                // Make a copy of the operands to avoid modifying the original
+                char *operands_copy = strdup(line->operands);
+                // Remove quotes if present
+                if(s[0]=='"' && s[strlen(s)-1]=='"') {
+                    operands_copy[strlen(operands_copy)-1] = '\0';
+                    s = operands_copy + 1;
+                } else {
+                    s = operands_copy;
+                }
+                int len = (int)strlen(s) + 1;  // +1 for null terminator
+                // For .asciiz, allocate one 16-bit word per character (including null terminator)
+                line->codeCount = len;
+                line->code = (uint16_t *)malloc(line->codeCount * sizeof(uint16_t));
+                // Store each character as a separate code unit
+                for (int j = 0; j < len; j++) {
+                    line->code[j] = (uint16_t)s[j];  // Just store the character value
+
+
+
+
+
+
+                }
+                free(operands_copy);
+                loc_data += len;
+            } else if(cmpIgnoreCase(line->mnemonic, ".byte") == 0) {
                  int count = countValues(line->operands);
                  line->codeCount = count;
                  line->code = (uint16_t *)malloc(count * sizeof(uint16_t));
@@ -890,18 +895,27 @@ int parseImmediate(const char *token) {
      }
      // Copy each line's code into the memory image at its computed address.
      for (int i = 0; i < lineCount; i++) {
-          Line *l = lines[i];
-          if(l->codeCount > 0 && (l->section == SECTION_TEXT || l->section == SECTION_DATA)) {
-              for (int j = 0; j < l->codeCount; j++) {
-                  int addr = l->address + j * l->elementSize;
-                  if(l->elementSize == 1) {
-                      memoryImage[addr] = l->code[j] & 0xFF;
-                  } else if(l->elementSize == 2) {
-                      memoryImage[addr] = l->code[j] & 0xFF;
-                      memoryImage[addr+1] = (l->code[j] >> 8) & 0xFF;
-                  }
-              }
-          }
+        Line *l = lines[i];
+         if(l->codeCount > 0 && (l->section == SECTION_TEXT || l->section == SECTION_DATA)) {
+             if(cmpIgnoreCase(l->mnemonic, ".asciiz") == 0) {
+                 // Special handling for .asciiz strings
+                 for (int j = 0; j < l->codeCount; j++) {
+                     int addr = l->address + j;
+                     memoryImage[addr] = l->code[j] & 0xFF;
+                 }
+             } else {
+                 // Normal handling for other directives
+                 for (int j = 0; j < l->codeCount; j++) {
+                     int addr = l->address + j * l->elementSize;
+                     if(l->elementSize == 1) {
+                         memoryImage[addr] = l->code[j] & 0xFF;
+                     } else if(l->elementSize == 2) {
+                         memoryImage[addr] = l->code[j] & 0xFF;
+                         memoryImage[addr+1] = (l->code[j] >> 8) & 0xFF;
+                     }
+                 }
+             }
+         }
      }
      FILE *fp = fopen(binFilename, "wb");
      if(!fp) {
