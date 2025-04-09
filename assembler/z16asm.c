@@ -229,35 +229,44 @@
  }
 
  // Parse an immediate value. Supports decimal, octal, hex, binary, %hi(...) and %lo(...).
- int parseImmediate(const char *token) {
-     if(strncmp(token, "%hi(", 4)==0) {
+int parseImmediate(const char *token) {
+     Symbol* token_symbol = findSymbol(token);
+     if(token_symbol) {
+         return token_symbol->address;  // Directly return symbol address if found
+     }
+
+     if(strncmp(token, "%hi(", 4) == 0) {
          const char *p = token + 4;
-         char numberStr[64];
+         char innerToken[64];
          int i = 0;
          while(*p && *p != ')') {
-             numberStr[i++] = *p++;
+             innerToken[i++] = *p++;
          }
-         numberStr[i] = '\0';
-         int value = (int)strtol(numberStr, NULL, 0);
+         innerToken[i] = '\0';
+
+         // Check if inner token is a symbol
+         Symbol* inner_symbol = findSymbol(innerToken);
+         int value = inner_symbol ? inner_symbol->address : (int)strtol(innerToken, NULL, 0);
+
          return value >> 7;
      }
-     if(strncmp(token, "%lo(", 4)==0) {
+
+     if(strncmp(token, "%lo(", 4) == 0) {
          const char *p = token + 4;
-         char numberStr[64];
+         char innerToken[64];
          int i = 0;
          while(*p && *p != ')') {
-             numberStr[i++] = *p++;
+             innerToken[i++] = *p++;
          }
-         numberStr[i] = '\0';
-         int value = (int)strtol(numberStr, NULL, 0);
+         innerToken[i] = '\0';
+
+         // Check if inner token is a symbol
+         Symbol* inner_symbol = findSymbol(innerToken);
+         int value = inner_symbol ? inner_symbol->address : (int)strtol(innerToken, NULL, 0);
+
          return value & 0x7F;
      }
-     // Support binary constants with "0b" or "0B" prefix.
-     if(token[0]=='0' && (token[1]=='b' || token[1]=='B'))
-         return (int)strtol(token+2, NULL, 2);
-     return (int)strtol(token, NULL, 0);
  }
-
  // -----------------------
  // Source Line Structures and Parsing
  // -----------------------
@@ -316,6 +325,33 @@
      }
  }
 
+ char *unescapeString(const char *src) {
+    char *dest = malloc(strlen(src) + 1);  // Destination buffer
+    char *d = dest;
+    const char *s = src;
+
+    while (*s) {
+        if (*s == '\\') {
+            s++;
+            switch (*s) {
+                case 'n': *d++ = '\n'; break;
+                case 't': *d++ = '\t'; break;
+                case 'r': *d++ = '\r'; break;
+                case '\\': *d++ = '\\'; break;
+                case '"': *d++ = '"'; break;
+                case '0': *d++ = '\0'; break;
+                default: *d++ = *s; break; // Unknown escape, keep as-is
+            }
+            s++;
+        } else {
+            *d++ = *s++;
+        }
+    }
+    *d = '\0';
+    return dest;
+ }
+
+
  // Parse a source line into label, mnemonic, and operands.
  // Comments (starting with '#' or ';') are removed and the mnemonic is converted to lower-case.
  void parseSourceLine(Line *line) {
@@ -349,7 +385,7 @@
          char *ops = strtok(NULL, "\n");
          if(ops) {
              while(isspace((unsigned char)*ops)) ops++;
-             line->operands = strdup(ops);
+             line->operands = unescapeString(ops);
          }
      }
  }
@@ -401,6 +437,7 @@
                      s[strlen(s)-1] = '\0';
                      s++;
                  }
+                line->operands = strdup(s);
                  int len = (int)strlen(s) + 1;
                  line->elementSize = 1; // each character is a byte
                  loc_data += len;
@@ -456,28 +493,33 @@
                      loc_text = line->address;
                  else if(currentSection == SECTION_DATA && line->section==SECTION_DATA)
                      loc_data = line->address;
-             } else if(cmpIgnoreCase(line->mnemonic, ".asciiz") == 0) {
-                 char *s = line->operands;
-                 if(s[0]=='"' && s[strlen(s)-1]=='"') {
-                     s[strlen(s)-1] = '\0';
-                     s++;
-                 }
-                 int len = (int)strlen(s) + 1;
-                 // For .asciiz, allocate one 16-bit word per two characters.
-                 line->codeCount = (len + 1) / 2;
-                 line->code = (uint16_t *)malloc(line->codeCount * sizeof(uint16_t));
-                 // Pack characters into words (little-endian).
-                 for (int j = 0; j < line->codeCount; j++) {
-                     uint16_t word = 0;
-                     int index = j * 2;
-                     if(index < len)
-                         word |= ((unsigned char)s[index]);
-                     if(index+1 < len)
-                         word |= (((unsigned char)s[index+1]) << 8);
-                     line->code[j] = word;
-                 }
-                 loc_data += len;
-             } else if(cmpIgnoreCase(line->mnemonic, ".byte") == 0) {
+             }else if(cmpIgnoreCase(line->mnemonic, ".asciiz") == 0) {  char *s = line->operands;
+                // Make a copy of the operands to avoid modifying the original
+                char *operands_copy = strdup(line->operands);
+                // Remove quotes if present
+                if(s[0]=='"' && s[strlen(s)-1]=='"') {
+                    operands_copy[strlen(operands_copy)-1] = '\0';
+                    s = operands_copy + 1;
+                } else {
+                    s = operands_copy;
+                }
+                int len = (int)strlen(s) + 1;  // +1 for null terminator
+                // For .asciiz, allocate one 16-bit word per character (including null terminator)
+                line->codeCount = len;
+                line->code = (uint16_t *)malloc(line->codeCount * sizeof(uint16_t));
+                // Store each character as a separate code unit
+                for (int j = 0; j < len; j++) {
+                    line->code[j] = (uint16_t)s[j];  // Just store the character value
+
+
+
+
+
+
+                }
+                free(operands_copy);
+                loc_data += len;
+            } else if(cmpIgnoreCase(line->mnemonic, ".byte") == 0) {
                  int count = countValues(line->operands);
                  line->codeCount = count;
                  line->code = (uint16_t *)malloc(count * sizeof(uint16_t));
@@ -543,16 +585,20 @@
                  int reg2;
                  token = strtok(NULL, ", \t");
                  if(!token) {
-                     // For jr and jalr, if second operand is missing, set reg2 = 0.
-                     if(cmpIgnoreCase(inst->mnemonic, "jr") == 0 ||
-                        cmpIgnoreCase(inst->mnemonic, "jalr") == 0) {
-                         reg2 = 0;
+                    // Only one operand given, check if it's "jr" or "jalr"
+                    if(cmpIgnoreCase(inst->mnemonic, "jr") == 0) {
+                         reg2 = reg1;
                      } else {
                          fprintf(stderr, "Error on line %d: Expected second register operand\n", line->lineNo);
                          exit(1);
                      }
                  } else {
-                     reg2 = parseRegister(token);
+                    if(cmpIgnoreCase(inst->mnemonic, "jr") == 0) {
+                        fprintf(stderr, "Error on line %d: Unexpected second operand for 'jr'\n", line->lineNo);
+                        exit(1); 
+                    } else {
+                        reg2 = parseRegister(token);
+                    }
                  }
                  machineWord |= (inst->funct4 & 0xF) << 12;
                  machineWord |= (reg2 & 0x7) << 9;
@@ -649,7 +695,7 @@
                          fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
                          exit(1);
                      }
-                     offset = (sym->address - (line->address + 2)) >> 1;
+                     offset = (sym->address - (line->address)) >> 1;  //Fix offset calculations 
                      if(offset < -8 || offset > 7) {
                          fprintf(stderr, "Error on line %d: Branch offset out of range\n", line->lineNo);
                          exit(1);
@@ -739,20 +785,26 @@
                      fprintf(stderr, "Error on line %d: Missing operand for jump\n", line->lineNo);
                      exit(1);
                  }
-                 char *token = strtok(line->operands, ", \t");
+                 char *token = strtok(line->operands, ", \t"); //creates a token for the register/label (depends j or jal)
+                 char *tokenLab = strtok(NULL, ", \t"); //creates a token for the label
                  int rd = 0;
-                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) {
-                     if(!token) {
+                 if(cmpIgnoreCase(inst->mnemonic, "jal") == 0) { //it is jal
+                     if(!token) { //no first token so no tokens at all
                          fprintf(stderr, "Error on line %d: Expected register operand for jump\n", line->lineNo);
                          exit(1);
                      }
-                     rd = parseRegister(token);
-                     token = strtok(NULL, ", \t");
+                     if(!tokenLab) {
+                         rd = 1; //if line->operands has one argument, assume register to be ra
+                     }
+                     else{
+                         rd = parseRegister(token);
+                         token = tokenLab;
+                     }
                  }
                 if(!token) {
                     fprintf(stderr, "Error on line %d: Expected label for jump\n", line->lineNo);
                     exit(1);
-                }
+                 }
                  Symbol *sym = findSymbol(token);
                  if(!sym) {
                      fprintf(stderr, "Error on line %d: Undefined label '%s'\n", line->lineNo, token);
@@ -761,7 +813,7 @@
                  int currPC = line->address;
                  int targetPC = sym->address;
                  int offset = (targetPC - currPC);
-                 if(offset < -128 || offset > 127) {
+                 if(offset < -512 || offset > 511) {
                      fprintf(stderr, "Error on line %d: Jump offset out of range\n", line->lineNo);
                      exit(1);
                  }
@@ -881,18 +933,27 @@
      }
      // Copy each line's code into the memory image at its computed address.
      for (int i = 0; i < lineCount; i++) {
-          Line *l = lines[i];
-          if(l->codeCount > 0 && (l->section == SECTION_TEXT || l->section == SECTION_DATA)) {
-              for (int j = 0; j < l->codeCount; j++) {
-                  int addr = l->address + j * l->elementSize;
-                  if(l->elementSize == 1) {
-                      memoryImage[addr] = l->code[j] & 0xFF;
-                  } else if(l->elementSize == 2) {
-                      memoryImage[addr] = l->code[j] & 0xFF;
-                      memoryImage[addr+1] = (l->code[j] >> 8) & 0xFF;
-                  }
-              }
-          }
+        Line *l = lines[i];
+         if(l->codeCount > 0 && (l->section == SECTION_TEXT || l->section == SECTION_DATA)) {
+             if(cmpIgnoreCase(l->mnemonic, ".asciiz") == 0) {
+                 // Special handling for .asciiz strings
+                 for (int j = 0; j < l->codeCount; j++) {
+                     int addr = l->address + j;
+                     memoryImage[addr] = l->code[j] & 0xFF;
+                 }
+             } else {
+                 // Normal handling for other directives
+                 for (int j = 0; j < l->codeCount; j++) {
+                     int addr = l->address + j * l->elementSize;
+                     if(l->elementSize == 1) {
+                         memoryImage[addr] = l->code[j] & 0xFF;
+                     } else if(l->elementSize == 2) {
+                         memoryImage[addr] = l->code[j] & 0xFF;
+                         memoryImage[addr+1] = (l->code[j] >> 8) & 0xFF;
+                     }
+                 }
+             }
+         }
      }
      FILE *fp = fopen(binFilename, "wb");
      if(!fp) {
