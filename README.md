@@ -40,7 +40,7 @@ Registers|32 x 32-bit registers| 8 x 16-bit registers|
 
 
 ## Instructions Encoding
-<img src="docs/instr.png" alt="z16 Instructions Table" style="width:65%; height:auto;">
+<img src="docs/instr.png" alt="z16 Instructions Table" style="width:50%; height:auto;">
 
 ## Instruction Types
 
