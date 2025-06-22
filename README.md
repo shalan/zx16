@@ -1090,3 +1090,9 @@ main:
     # Exit
     CLR a0
     ECALL 0x3FF
+```
+
+------
+
+## Contribution
+Please refer to the contribution guide [here](docs/contribute.md).
