@@ -1226,21 +1226,27 @@ class ZX16Assembler:
             raise SyntaxError(f"Unknown instruction: {mnemonic}")
     
     def get_binary_output(self) -> bytes:
-        """Get binary output."""
-        # Combine all sections
-        output = bytearray(65536)  # 64KB memory space
-        
-        # Write text section
+        """Get binary output with only the necessary bytes written."""
+        output = bytearray(65536)  # max memory size
+        max_address = 0
+
+        # Write .text section
         text_start = self.section_addresses['.text']
         text_data = self.sections['.text']
         output[text_start:text_start + len(text_data)] = text_data
-        
-        # Write data section
+        if text_data:
+            max_address = max(max_address, text_start + len(text_data))
+
+        # Write .data section
         data_start = self.section_addresses['.data']
         data_data = self.sections['.data']
         output[data_start:data_start + len(data_data)] = data_data
-        
-        return bytes(output)
+        if data_data:
+            max_address = max(max_address, data_start + len(data_data))
+
+        return bytes(output[:max_address])
+
+
     
     def get_intel_hex_output(self) -> str:
         """Get Intel HEX format output."""
