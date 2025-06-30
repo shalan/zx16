@@ -1240,6 +1240,11 @@ class ZX16Assembler:
         data_data = self.sections['.data']
         output[data_start:data_start + len(data_data)] = data_data
         
+        # Write BSS section (zero-filled)
+        bss_start = self.section_addresses['.bss']
+        bss_data = self.sections['.bss']
+        output[bss_start:bss_start + len(bss_data)] = bss_data
+        
         return bytes(output)
     
     def get_intel_hex_output(self) -> str:
@@ -1274,6 +1279,14 @@ class ZX16Assembler:
             for i in range(0, len(data_data), 16):
                 chunk = data_data[i:i + 16]
                 lines.append(write_hex_line(data_start + i, chunk))
+        
+        # Write BSS section (zero-filled)
+        bss_data = self.sections['.bss']
+        if bss_data:
+            bss_start = self.section_addresses['.bss']
+            for i in range(0, len(bss_data), 16):
+                chunk = bss_data[i:i + 16]
+                lines.append(write_hex_line(bss_start + i, chunk))
         
         # End of file record
         lines.append(":00000001FF")
@@ -1313,6 +1326,15 @@ class ZX16Assembler:
                 addr = data_start + i
                 lines.append(f"        16'h{addr:04X}: data = 16'h{word:04X};")
         
+        # Add BSS section data (zero-filled)
+        bss_data = self.sections['.bss']
+        bss_start = self.section_addresses['.bss']
+        for i in range(0, len(bss_data), 2):
+            if i + 1 < len(bss_data):
+                word = bss_data[i] | (bss_data[i + 1] << 8)
+                addr = bss_start + i
+                lines.append(f"        16'h{addr:04X}: data = 16'h{word:04X};")
+        
         lines.extend([
             "        default: data = 16'h0000;",
             "    endcase",
@@ -1345,6 +1367,15 @@ class ZX16Assembler:
                     word = data_data[i] | (data_data[i + 1] << 8)
                     addr = data_start + i
                     lines.append(f"@{addr:04X} {word:04X}")
+            
+            # BSS section (zero-filled)
+            bss_data = self.sections['.bss']
+            bss_start = self.section_addresses['.bss']
+            for i in range(0, len(bss_data), 2):
+                if i + 1 < len(bss_data):
+                    word = bss_data[i] | (bss_data[i + 1] << 8)
+                    addr = bss_start + i
+                    lines.append(f"@{addr:04X} {word:04X}")
         
         else:
             lines = ["# ZX16 Memory File"]
@@ -1365,6 +1396,14 @@ class ZX16Assembler:
                 if i + 1 < len(data_data):
                     word = data_data[i] | (data_data[i + 1] << 8)
                     memory[data_start + i // 2] = word
+            
+            # Fill BSS section (zero-filled)
+            bss_data = self.sections['.bss']
+            bss_start = self.section_addresses['.bss'] // 2
+            for i in range(0, len(bss_data), 2):
+                if i + 1 < len(bss_data):
+                    word = bss_data[i] | (bss_data[i + 1] << 8)
+                    memory[bss_start + i // 2] = word
             
             # Output all memory words
             for word in memory:
@@ -1402,7 +1441,8 @@ class ZX16Assembler:
             "Statistics:",
             f"  Code size:    {len(self.sections['.text'])} bytes",
             f"  Data size:    {len(self.sections['.data'])} bytes",
-            f"  Total size:   {len(self.sections['.text']) + len(self.sections['.data'])} bytes",
+            f"  BSS size:     {len(self.sections['.bss'])} bytes",
+            f"  Total size:   {len(self.sections['.text']) + len(self.sections['.data']) + len(self.sections['.bss'])} bytes",
             f"  Symbols:      {len([s for s in self.symbols.values() if s.defined])}",
             f"  Lines:        {len(source_lines)}"
         ])
