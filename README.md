@@ -1036,8 +1036,11 @@ MEM_SIZE        = 0x10000       # Total memory size (64KB)
 # Demonstrates basic I/O and string handling
 
 .text
-.org 0x0020
+.org 0x0000
+reset:
+    J    main    # Reset
 
+.org 0x0020
 main:
     # Initialize stack pointer
     LI16 sp, STACK_TOP
@@ -1073,8 +1076,11 @@ hello_msg: .string "Hello, ZX16! Enter a character: "
 # Demonstrates function calls, stack usage, and local variables
 
 .text
-.org 0x0020
+.org 0x0000
+reset:
+    J    main
 
+.org 0x0020
 main:
     # Initialize stack
     LI16 sp, STACK_TOP
