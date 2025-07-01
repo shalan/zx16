@@ -1,4 +1,4 @@
-# ZX16 RISC ISA Specification – Complete Version
+# ZX16 RISC ISA Specification
 
 ## Overview
 The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for simplicity, efficiency, and educational use. It features:
