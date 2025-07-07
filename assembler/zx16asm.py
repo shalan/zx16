@@ -438,52 +438,57 @@ class ZX16Parser:
             expansions.append(('ori', [rd, lower]))
         
         elif mnemonic == 'la':
-            # LA rd, label -> AUIPC rd, ((label-PC) >> 7); ADDI rd, ((label-PC) & 0x7F)
+            # LA rd, label -> AUIPC rd, high; ADDI rd, rd, low (PC-relative)
             if len(operands) != 2:
                 raise SyntaxError("LA requires 2 operands")
-            rd, label = operands
             
+            rd, label = operands
+
             if isinstance(label, str):
                 if symbol_resolver:
                     label_addr = symbol_resolver(label)
                     offset = label_addr - current_pc
-                    
-                    # Calculate upper and lower parts for PC-relative addressing
-                    if offset >= 0:
-                        upper = (offset >> 7) & 0x1FF
-                        lower = offset & 0x7F
-                    else:
-                        # Handle negative offsets
-                        offset = offset & 0xFFFF  # 16-bit wrap
-                        upper = (offset >> 7) & 0x1FF
-                        lower = offset & 0x7F
-                        if lower > 63:  # Sign extend lower part
-                            lower = lower - 128
-                    
-                    expansions.append(('auipc', [rd, upper]))
-                    expansions.append(('addi', [rd, lower]))
+
+                    # Normalize to 16-bit signed
+                    offset &= 0xFFFF
+                    if offset >= 0x8000:
+                        offset -= 0x10000  # Sign-extend
+
+                    # Calculate lower and upper parts carefully
+                    low = offset & 0x7F
+                    if low > 63:
+                        low -= 128
+                    high = (offset - low) >> 7
+                    high &= 0x1FF
+
+                    expansions.append(('auipc', [rd, high]))
+                    expansions.append(('addi', [rd, low]))
                 else:
-                    # Defer expansion to when symbols are available
                     return [(mnemonic, operands)]
             else:
-                # Direct address
                 offset = label - current_pc
-                upper = (offset >> 7) & 0x1FF
-                lower = offset & 0x7F
-                
-                expansions.append(('auipc', [rd, upper]))
-                expansions.append(('addi', [rd, lower]))
-        
+                offset &= 0xFFFF
+                if offset >= 0x8000:
+                    offset -= 0x10000
+
+                low = offset & 0x7F
+                if low > 63:
+                    low -= 128
+                high = (offset - low) >> 7
+                high &= 0x1FF
+
+                expansions.append(('auipc', [rd, high]))
+                expansions.append(('addi', [rd, low]))
+
         elif mnemonic == 'push':
             # PUSH rs -> ADDI sp, -2; SW rs, 0(sp)
             if len(operands) != 1:
                 raise SyntaxError("PUSH requires 1 operand")
+            
             rs = operands[0]
             sp = self.register_map['sp']
-            
             expansions.append(('addi', [sp, -2]))
             expansions.append(('sw', [rs, 0, sp]))
-        
         elif mnemonic == 'pop':
             # POP rd -> LW rd, 0(sp); ADDI sp, 2
             if len(operands) != 1:
