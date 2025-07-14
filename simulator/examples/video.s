@@ -14,6 +14,20 @@
     j   main
 .org 0x0020
 main:
+    # fill the palette
+    la      t0, colors
+    la      t1, video_palette
+    li      s0, 6
+loop:
+    bz      s0, done
+    lbu     s1, 0(t0)
+    sb      s1, 0(t1)
+    inc     t0
+    inc     t1
+    dec     s0
+    j       loop  
+done:
+    # fill the tiles data
     la      a0, tile_red
     la      a1, video_tile_0
     call    fill_tile_fn
