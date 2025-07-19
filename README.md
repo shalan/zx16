@@ -285,13 +285,22 @@ This table shows, for each instruction, the key fields used to distinguish it: t
 ZX16 supports several pseudo-instructions that expand to one or more real instructions:
 
 ### **LI16 rd, imm16** - Load 16-bit immediate
+#### Standard case (bit 6 clear):
+```LI16 x1, 0x1234```
+Expands to:
 ```assembly
-LI16 x1, 0x1234
-# Expands to:
 LUI  x1, 0x24      # Load upper 9 bits (0x1234 >> 7 = 0x24)
-ORI  x1, 0x34      # OR in lower 7 bits (0x1234 & 0x7F = 0x34)
+ADDI x1, 0x34      # Add lower 7 bits (0x1234 & 0x7F = 0x34)
 ```
-
+#### Corner case (bit 6 set - ADDI immediate will be negative):
+```assembly
+LI16 x1, 0x00FF
+```
+Expands to:
+```assembly
+LUI  x1, 0x02      # Load upper 9 bits + 1 ((0x00FF >> 7) + 1 = 0x02)
+ADDI x1, -1        # Add lower 7 bits as signed (0xFF & 0x7F = 0x7F = -1 in 7-bit signed)
+```
 ### **LA rd, label** - Load address
 ```assembly
 LA x1, data_label
@@ -299,6 +308,7 @@ LA x1, data_label
 AUIPC x1, ((label - PC) >> 7)    # PC + upper bits of relative offset
 ADDI  x1, ((label - PC) & 0x7F)  # Add lower 7 bits of relative offset
 ```
+Note: The same `LI16` bit 6 corner case must be handled.
 
 ### **PUSH rd** - Push register to stack
 ```assembly
