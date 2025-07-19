@@ -369,7 +369,7 @@ Note: The same `LI16` bit 6 corner case must be handled.
 ```assembly
 LJ distant_label
 # Expands to:
-LA   x0, distant_label    # Load full address into temp register  
+LI16 x0, distant_label    # Load full address into temp register  
 JR   x0                   # Jump to address in register
 ```
 
