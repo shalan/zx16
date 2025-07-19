@@ -10,7 +10,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 - **Smart immediates**: any immediate < 16 bits is sign-extended  
 - **PC-relative control flow**: all branches, J and JAL use PC-relative offsets  
 - **Memory-mapped I/O** at 0xF000–0xFFFF  
-- **16 interrupt vectors** at 0x0000–0x001E (2 bytes each; reset at 0x0000)
+- **16 interrupt vectors** at 0x0000–0x001F (2 bytes each; reset at 0x0000)
 
 ---
 
@@ -365,6 +365,14 @@ ADDI  x1, ((label - PC) & 0x7F)  # Add lower 7 bits of relative offset
 ```
 Note: The same `LI16` bit 6 corner case must be handled.
 
+### **LJ label*** - Long Jump (for distances beyond J range)
+```assembly
+LJ distant_label
+# Expands to:
+LA   x0, distant_label    # Load full address into temp register  
+JR   x0                   # Jump to address in register
+```
+
 ### **PUSH rd** - Push register to stack
 ```assembly
 PUSH x1
@@ -467,7 +475,7 @@ ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
 - **S-Type/L-Type**: -8 to +7 (4-bit signed)
 - **B-Type**: -16 to +14 bytes (5-bit signed, word-aligned)
 - **J-Type**: -1024 to +1022 bytes (10-bit signed, word-aligned)
-- **U-Type**: 0 to 511 (9-bit unsigned, shifted left 7 bits)
+- **U-Type**: 0 to 511 (9-bit unsigned immediate 0-511, shifted left 7 bits) 
 
 ### Shift Operations
 - **Shift amount**: Limited to 0-15 (4 bits)
