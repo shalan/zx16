@@ -380,7 +380,7 @@ XOR x1, x1         # x1 = x1 XOR x1 = 0
 ```assembly
 NOP
 # Expands to:
-ADD x0, x0         # x0 = x0 + x0 (does nothing useful)
+ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
 ```
 
 ---
