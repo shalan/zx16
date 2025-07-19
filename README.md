@@ -89,8 +89,17 @@ Every instruction is 16 bits, with bits [2:0] as primary opcode:
 ## ZX16 Instruction Format Field Layouts
 
 All instructions are 16 bits. Bits [2:0] select the format/opcode.
+## Instruction Formats
+
+All instructions are 16 bits with bits [2:0] as primary opcode:
 
 ### R-Type (opcode = `000`)
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│    funct4     │    rs2    │  rd/rs1   │   func3   │ 0 │ 0 │ 0 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
 - **[15:12]** funct4  
 - **[11:9]** rs2  
 - **[8:6]** rd/rs1 (two‐operand: dest & first source)  
@@ -98,40 +107,79 @@ All instructions are 16 bits. Bits [2:0] select the format/opcode.
 - **[2:0]** 000  
 
 ### I-Type (opcode = `001`)
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│        imm7 (signed)      │  rd/rs1   │   func3   │ 0 │ 0 │ 1 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
 - **[15:9]** imm7 (7-bit signed immediate, sign-extended)  
 - **[8:6]** rd/rs1  
 - **[5:3]** func3  
 - **[2:0]** 001  
 
+**Note**: For shift instructions: `shift_amt = imm7[3:0]}`; `imm7[6:4]` are used to determine the shift type.
+
 ### B-Type (opcode = `010`)
-- **[15:12]** imm[4:1] (high 4 bits of 5-bit signed offset, imm[0] = 0)  
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│   imm[4:1]    │    rs2    │   rs1     │   func3   │ 0 │ 1 │ 0 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+- **[15:12]** imm[4:1] (high 4 bits of 5-bit signed offset, imm[0] = 0) -- Range: -16 to 14.  
 - **[11:9]** rs2 (ignored for BZ/BNZ)  
 - **[8:6]** rs1  
 - **[5:3]** func3  
 - **[2:0]** 010  
 
 ### S-Type (opcode = `011`)
-- **[15:12]** imm[3:0] (4-bit signed store offset)  
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│   imm[3:0]    │    rs2    │   rs1     │   func3   │ 0 │ 1 │ 1 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+- **[15:12]** imm[3:0] (4-bit signed store offset) -- Range: -8 to +7 
 - **[11:9]** rs2 (data register)  
 - **[8:6]** rs1 (base register)  
 - **[5:3]** func3  
 - **[2:0]** 011  
 
 ### L-Type (opcode = `100`)
-- **[15:12]** imm[3:0] (4-bit signed load offset)  
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│   imm[3:0]    │    rs2    │    rd     │   func3   │ 1 │ 0 │ 0 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+- **[15:12]** imm[3:0] (4-bit signed load offset) -- Range: -8 to +7
 - **[11:9]** rs2 (base register)  
 - **[8:6]** rd (destination register)  
 - **[5:3]** func3  
 - **[2:0]** 100  
 
 ### J-Type (opcode = `101`)
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ L │         imm[9:4]      │    rd     │ imm[3:1]  │ 1 │ 0 │ 1 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
 - **[15]** link flag (0 = J, 1 = JAL)  
-- **[14:9]** imm[9:4] (high 6 bits of 10-bit signed offset, imm[0] = 0)  
+- **[14:9]** imm[9:4] (high 6 bits of 10-bit signed offset, imm[0] = 0) -- Range: -1024 to +1022 
 - **[8:6]** rd (link register for JAL)  
 - **[5:3]** imm[3:1] (low 3 bits of offset)  
 - **[2:0]** 101  
 
 ### U-Type (opcode = `110`)
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│ F │   imm[15:10]      │    rd     │ imm[9:7]  │ 1 │ 1 │ 0 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+
 - **[15]** flag (0 = LUI, 1 = AUIPC)  
 - **[14:9]** imm[15:10] (high 6 bits of immediate)  
 - **[8:6]** rd  
@@ -139,6 +187,13 @@ All instructions are 16 bits. Bits [2:0] select the format/opcode.
 - **[2:0]** 110  
 
 ### SYS-Type (opcode = `111`)
+```
+15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
+┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐
+│              svc[9:0]                 │ 0 │ 0 │ 0 │ 1 │ 1 │ 1 │
+└───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
+```
+
 - **[15:6]** svc (10-bit system-call number)  
 - **[5:3]** 000  
 - **[2:0]** 111  
