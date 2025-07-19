@@ -31,7 +31,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 
 | Register | ABI | Role                    | Notes                       |
 |:--------:|:---:|:-----------------------:|:----------------------------|
-| x0       | t0  | Temporary               | Caller-saved scratch        |
+| x0       | t0  | Temporary               | Caller-saved scratch/Assembler Temporary        |
 | x1       | ra  | Return address          | Used by JAL/JALR            |
 | x2       | sp  | Stack pointer           | Initialized to 0xEFFE       |
 | x3       | s0  | Saved / Frame pointer   | Callee-saved                |
@@ -53,7 +53,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 
 | Range         | Usage                                        |
 |:-------------:|:---------------------------------------------|
-| 0x0000–0x001E | Interrupt vector table (16 entries × 2 bytes)|
+| 0x0000–0x001F | Interrupt vector table (16 entries × 2 bytes)|
 | 0x0020–0xEFFF | RAM & ROM                                    |
 | 0xF000–0xFFFF | MMIO (I/O registers start at 0xF000)         |
 
