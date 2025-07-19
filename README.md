@@ -465,7 +465,7 @@ ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
 ### Immediate Ranges
 - **I-Type**: -64 to +63 (7-bit signed)
 - **S-Type/L-Type**: -8 to +7 (4-bit signed)
-- **B-Type**: -32 to +30 bytes (5-bit signed, word-aligned)
+- **B-Type**: -16 to +14 bytes (5-bit signed, word-aligned)
 - **J-Type**: -1024 to +1022 bytes (10-bit signed, word-aligned)
 - **U-Type**: 0 to 511 (9-bit unsigned, shifted left 7 bits)
 
