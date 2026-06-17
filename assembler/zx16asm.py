@@ -830,10 +830,15 @@ class ZX16Assembler:
                     else:
                         self.current_address += 4  # Expands to LI16 (LUI + ORI)
                 elif mnemonic in parser.pseudo_instructions:
-                    if mnemonic in ['li16', 'neg']:
+                    # Size must match the actual expansion in
+                    # expand_pseudo_instruction(), or labels after a pseudo
+                    # will be misplaced.
+                    #   li16, la, push, pop, neg  -> 2 instructions (4 bytes)
+                    #   call, ret, inc, dec, not, clr, nop -> 1 instruction (2 bytes)
+                    if mnemonic in ['li16', 'la', 'push', 'pop', 'neg']:
                         self.current_address += 4  # Expands to 2 instructions
                     else:
-                        self.current_address += 2  # Most expand to 1 instruction
+                        self.current_address += 2  # Expands to 1 instruction
                 else:
                     self.current_address += 2  # Regular instruction
                 
@@ -1080,8 +1085,19 @@ class ZX16Assembler:
             if not isinstance(imm, int):
                 raise SyntaxError(f"Immediate must be an integer or symbol, got {type(imm)}")
 
-            if not -64 <= imm <= 63:
-                raise SyntaxError(f"I-type immediate out of range: {imm}")
+            # The imm7 field is 7 bits wide and sign-extended at execution time.
+            # Arithmetic/compare/li immediates are signed: -64..63.
+            # Logical immediates (ORI/ANDI/XORI) are commonly written as unsigned
+            # bit masks, so also accept 0..127; the assembler stores the low 7 bits
+            # either way. This is the range LI16's ORI step relies on.
+            if mnemonic in ('ori', 'andi', 'xori'):
+                if not -64 <= imm <= 127:
+                    raise SyntaxError(
+                        f"{mnemonic.upper()} immediate out of range "
+                        f"(expected -64..127): {imm}")
+            else:
+                if not -64 <= imm <= 63:
+                    raise SyntaxError(f"I-type immediate out of range: {imm}")
 
          # Encode: imm[6:0] << 9 | rd << 6 | func3 << 3 | opcode
             encoding = ((imm & 0x7F) << 9) | (rd << 6) | (func3 << 3) | InstructionFormat.I_TYPE.value
@@ -1183,7 +1199,12 @@ class ZX16Assembler:
                 raise SyntaxError(f"Unresolved symbol in jump target: {target}")
             
             offset = target - (self.current_address + 2)
-            if offset < -1024 or offset > 1020 or offset % 2 != 0:
+            # The J offset is encoded as imm[9:1] (9 bits) with imm[0]=0 and the
+            # sign bit at bit 9, so the round-trip-safe signed range is -512..+510 --
+            # NOT the -1024..+1022 the prose elsewhere claims. The old -1024..1020
+            # check accepted 511 offsets that silently miscompiled (e.g. +800 would
+            # encode and then decode as -224). Keep the check tight to the encoding.
+            if offset < -512 or offset > 510 or offset % 2 != 0:
                 raise SyntaxError(f"Jump offset out of range or not word-aligned: {offset}")
             
             imm_high = (offset >> 4) & 0x3F
