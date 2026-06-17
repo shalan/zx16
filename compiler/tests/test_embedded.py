@@ -58,5 +58,16 @@ _,out,sim=compile_run('examples/07_tea.c')
 check("07_tea struct-global cipher vs reference",
       out==[-31852,-1131,-29271,-25717], f"out={out}")
 
+# Ex7: MD5 of "abc" -> 900150983cd24fb0d6963f7d28e17f72 (matches hashlib)
+_,out,sim=compile_run('examples/08_md5.c')
+check("08_md5 \"abc\" digest vs reference",
+      [v & 0xFFFF for v in out]==[0x9850,0x0190,0xb04f,0xd23c,0x7d3f,0x96d6,0x727f,0xe128],
+      f"out={[hex(v & 0xFFFF) for v in out]}")
+
+# Ex8: radix-2 fixed-point FFT, N=8 -> matches the integer reference model
+_,out,sim=compile_run('examples/09_fft.c')
+check("09_fft N=8 fixed-point vs reference",
+      out==[28,0,-4,9,-4,4,-4,1,-4,0,-4,-1,-4,-4,-4,-9], f"out={out}")
+
 n=sum(1 for _,c,_ in results if c)
 print(f"\n{n}/{len(results)} embedded examples verified correct")
