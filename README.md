@@ -7,7 +7,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 - **64 KB flat address space** for code, data, MMIO, and interrupt vectors  
 - **8 instruction formats** selected by bits [2:0]  
 - **50+ real & pseudo-instructions** covering ALU, branches, loads/stores, jumps, upper-immediates, and syscalls  
-- **Smart immediates**: any immediate < 16 bits is sign-extended  
+- **Smart immediates**: large constants are synthesized via pseudo-ops; per-instruction immediates use their field's natural width (I-type arithmetic sign-extends, LUI/AUIPC fill the upper bits)  
 - **PC-relative control flow**: all branches, J and JAL use PC-relative offsets  
 - **Memory-mapped I/O** at 0xF000–0xFFFF  
 - **16 interrupt vectors** at 0x0000–0x001F (2 bytes each; reset at 0x0000)
@@ -18,7 +18,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 - Compact 16-bit instructions  
 - Two-operand ALU (rd/rs1 is both destination & first source)  
 - Smart assembler handles large constants via pseudo-ops  
-- Rich syscall interface for I/O, graphics, audio  
+- ECALL syscall interface for basic console I/O and program halt  
 - Little-endian byte order
 - Aligned memory access required for word operations
 - Byte-addressable memory
@@ -100,10 +100,7 @@ Every instruction is 16 bits, with bits [2:0] as primary opcode:
 
 ## ZX16 Instruction Format Field Layouts
 
-All instructions are 16 bits. Bits [2:0] select the format/opcode.
-## Instruction Formats
-
-All instructions are 16 bits with bits [2:0] as primary opcode:
+All instructions are 16 bits; bits [2:0] select the format/opcode.
 
 ### R-Type (opcode = `000`)
 ```
@@ -130,7 +127,7 @@ All instructions are 16 bits with bits [2:0] as primary opcode:
 - **[5:3]** func3  
 - **[2:0]** 001  
 
-**Note**: For shift instructions: `shift_amt = imm7[3:0]}`; `imm7[6:4]` are used to determine the shift type.
+**Note**: For shift instructions: `shift_amt = imm7[3:0]`; `imm7[6:4]` selects the shift type.
 
 ### B-Type (opcode = `010`)
 ```
@@ -248,7 +245,7 @@ zero. The full opcode that identifies SYS-Type is thus the 6-bit pattern `000111
 | **SLLI**  | rd ← rd << imm[3:0]                             |
 | **SRLI**  | rd ← rd >> imm[3:0] (logical)                   |
 | **SRAI**  | rd ← rd >> imm[3:0] (arithmetic)                |
-| **ORI**   | rd ← rd ∣ sext(imm7)                            |
+| **ORI**   | rd ← rd ∣ (imm7 & 0x7F)  — low 7 bits, no sign-extension |
 | **ANDI**  | rd ← rd ∧ sext(imm7)                            |
 | **XORI**  | rd ← rd ⊕ sext(imm7)                            |
 | **LI**    | rd ← sext(imm7)                                 |
@@ -294,6 +291,20 @@ zero. The full opcode that identifies SYS-Type is thus the 6-bit pattern `000111
 | Mnemonic | Description                              |
 |:--------:|:-----------------------------------------|
 | **ECALL**| Trap to service number in bits [15:6]   |
+
+#### ECALL Services
+
+`ECALL` traps to the service number encoded in bits [15:6]. Arguments are passed in
+`a0` (x6); results, where applicable, return in `a0`. The reference simulator implements:
+
+| Service | Name        | Input       | Effect                                           |
+|:-------:|:------------|:------------|:-------------------------------------------------|
+| `0x000` | print_int   | a0 = value  | Print `a0` as a signed decimal integer           |
+| `0x001` | print_char  | a0 = char   | Print the low byte of `a0` as an ASCII character |
+| `0x3FF` | halt        | —           | Stop execution                                   |
+
+Unknown service numbers are reserved; the simulator treats them as no-ops (it does not
+trap). The remaining svc space is available for implementation-defined services.
 
 ---
 
