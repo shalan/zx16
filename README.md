@@ -33,7 +33,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 |:--------:|:---:|:-----------------------:|:----------------------------|
 | x0       | t0  | Temporary               | Caller-saved scratch/Assembler Temporary        |
 | x1       | ra  | Return address          | Used by JAL/JALR            |
-| x2       | sp  | Stack pointer           | Initialized to 0xEFFE       |
+| x2       | sp  | Stack pointer           | Initialized to 0xF000       |
 | x3       | s0  | Saved / Frame pointer   | Callee-saved                |
 | x4       | s1  | Saved                   | Callee-saved                |
 | x5       | t1  | Temporary               | Caller-saved scratch        |
@@ -45,7 +45,19 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 
 ### Reset Behavior
 - **PC**: Initialized to 0x0000 on reset
-- **x0-x7**: Undefined values on reset (not initialized)
+- **x2 (sp)**: Initialized to 0xF000 on reset
+- **x0–x1, x3–x7**: Undefined values on reset (not initialized)
+
+> **On the SP reset value:** SP is initialized to 0xF000, the MMIO base — one word
+> *past* the top of usable RAM (0xEFFF). The stack is full-descending with
+> pre-decrement: `PUSH` does `ADDI sp, -2` then `SW rd, 0(sp)`, so the first push
+> writes to 0xEFFE–0xEFFF, the top word of RAM. SP is never dereferenced while it
+> holds 0xF000, so no MMIO access occurs from the initial value.
+
+> **Note for RISC-V users:** In ZX16, `x0` is a normal general-purpose register
+> (ABI name `t0`). It is **not** a hardwired-zero register. Writes to `x0` take
+> effect, and reads return whatever was last written. Idioms such as `CLR rd`
+> (which expands to `XOR rd, rd`) and `NOP` (`ADD x0, x0`) rely on this.
 
 ---
 
@@ -61,7 +73,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 - **Endianness**: Little-endian
 - **Addressing**: Byte-addressable
 - **Alignment**: Word accesses (SW/LW) must be aligned to even addresses
-- **Stack**: Grows downward from 0xEFFE
+- **Stack**: Grows downward; SP initialized to 0xF000, first push lands at 0xEFFE
 
 ## Interrupt Vector Table
 - 16 fixed entries at 0x0000–0x001E (2 bytes each)  
@@ -167,7 +179,7 @@ All instructions are 16 bits with bits [2:0] as primary opcode:
 └───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┴───┘
 ```
 - **[15]** link flag (0 = J, 1 = JAL)  
-- **[14:9]** imm[9:4] (high 6 bits of 10-bit signed offset, imm[0] = 0) -- Range: -1024 to +1022 
+- **[14:9]** imm[9:4] (with imm[3:1] and imm[0]=0 the field spans offset bits [9:1], sign bit = bit 9) -- Range: -512 to +510 
 - **[8:6]** rd (link register for JAL)  
 - **[5:3]** imm[3:1] (low 3 bits of offset)  
 - **[2:0]** 101  
@@ -186,6 +198,11 @@ All instructions are 16 bits with bits [2:0] as primary opcode:
 - **[5:3]** imm[9:7] (mid 3 bits of immediate)  
 - **[2:0]** 110  
 
+**Encoding note:** The assembler takes a 9-bit operand `v` (0–511) and the resulting
+register value is `v << 7`. The nine bits of `v` are scattered into the instruction
+as the immediate field shown above; equivalently, the immediate occupies result bits
+[15:7]. So `LUI rd, v` sets `rd = v << 7`, and `AUIPC rd, v` sets `rd = PC + (v << 7)`.
+
 ### SYS-Type (opcode = `111`)
 ```
 15  14  13  12  11  10   9   8   7   6   5   4   3   2   1   0
@@ -195,8 +212,11 @@ All instructions are 16 bits with bits [2:0] as primary opcode:
 ```
 
 - **[15:6]** svc (10-bit system-call number)  
-- **[5:3]** 000  
+- **[5:3]** 000 (reserved, must be zero)  
 - **[2:0]** 111  
+
+Note: only `ECALL` uses this format; bits [5:3] are reserved and currently always
+zero. The full opcode that identifies SYS-Type is thus the 6-bit pattern `000111`.
 
 ---
 
@@ -307,7 +327,7 @@ This table shows, for each instruction, the key fields used to distinguish it: t
 | ORI      | I      | `001`        | —              | `100`       | —                       |                                |
 | ANDI     | I      | `001`        | —              | `101`       | —                       |                                |
 | XORI     | I      | `001`        | —              | `110`       | —                       |                                |
-| LI       | I      | `001`        | —              | `111`       | —                       | load imm7                     |
+| LI       | I      | `001`        | —              | `111`       | —                       | real when imm ∈ [-64,63]; otherwise assembles as LI16 (LUI+ORI) |
 | **B-Type** |||||||
 | BEQ      | B      | `010`        | —              | `000`       | —                       | offset = sext(imm[4:1]∥0)     |
 | BNE      | B      | `010`        | —              | `001`       | —                       |                                |
@@ -340,38 +360,30 @@ This table shows, for each instruction, the key fields used to distinguish it: t
 ZX16 supports several pseudo-instructions that expand to one or more real instructions:
 
 ### **LI16 rd, imm16** - Load 16-bit immediate
-#### Standard case (bit 6 clear):
-```LI16 x1, 0x1234```
-Expands to:
-```assembly
-LUI  x1, 0x24      # Load upper 9 bits (0x1234 >> 7 = 0x24)
-ADDI x1, 0x34      # Add lower 7 bits (0x1234 & 0x7F = 0x34)
 ```
-#### Corner case (bit 6 set - ADDI immediate will be negative):
-```assembly
-LI16 x1, 0x00FF
+LI16 x1, 0x1234
 ```
 Expands to:
 ```assembly
-LUI  x1, 0x02      # Load upper 9 bits + 1 ((0x00FF >> 7) + 1 = 0x02)
-ADDI x1, -1        # Add lower 7 bits as signed (0xFF & 0x7F = 0x7F = -1 in 7-bit signed)
+LUI  x1, 0x24      # Load upper 9 bits into bits [15:7]  (0x1234 >> 7 = 0x24)
+ORI  x1, 0x34      # OR in the lower 7 bits             (0x1234 & 0x7F = 0x34)
 ```
-### **LA rd, label** - Load address
+The lower bits are combined with `ORI`, not `ADDI`. Because `LUI` clears the low 7
+bits of the destination, OR-ing the 7-bit remainder reconstructs the full value
+exactly, with no sign-extension to correct for. Any `imm16` in 0x0000–0xFFFF works
+with this two-instruction sequence.
+
+### **LA rd, label** - Load address (PC-relative)
 ```assembly
 LA x1, data_label
 # Expands to:
-AUIPC x1, ((label - PC) >> 7)    # PC + upper bits of relative offset
-ADDI  x1, ((label - PC) & 0x7F)  # Add lower 7 bits of relative offset
+AUIPC x1, high     # high = ((label - PC) - low) >> 7   (9-bit field)
+ADDI  x1, low      # low  = (label - PC) sign-reduced to [-64, 63]
 ```
-Note: The same `LI16` bit 6 corner case must be handled.
-
-### **LJ label*** - Long Jump (for distances beyond J range)
-```assembly
-LJ distant_label
-# Expands to:
-LI16 x0, distant_label    # Load full address into temp register  
-JR   x0                   # Jump to address in register
-```
+The offset `label - PC` is split so that the low part is a 7-bit *signed* value in
+[-64, 63] and the high part carries the remainder. `ADDI` is correct here (unlike in
+`LI16`) because the offset is computed as a signed quantity and the low part is
+deliberately reduced into signed range before the high part is adjusted.
 
 ### **PUSH rd** - Push register to stack
 ```assembly
@@ -421,7 +433,7 @@ ADDI x1, -1        # rd = rd - 1
 ```assembly
 NEG x1
 # Expands to:
-XORI x1, -1        # Invert all bits (XOR with 0x7F sign-extended)
+XORI x1, -1        # Invert all bits (imm7 = -1 sign-extends to 0xFFFF)
 ADDI x1, 1         # Add 1 to complete two's complement
 ```
 
@@ -429,7 +441,7 @@ ADDI x1, 1         # Add 1 to complete two's complement
 ```assembly
 NOT x1
 # Expands to:
-XORI x1, -1        # XOR with all 1s (0x7F sign-extended to 0xFFFF)
+XORI x1, -1        # XOR with 0xFFFF (imm7 = -1 sign-extended)
 ```
 
 ### **CLR rd** - Clear register to zero
@@ -443,7 +455,7 @@ XOR x1, x1         # x1 = x1 XOR x1 = 0
 ```assembly
 NOP
 # Expands to:
-ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
+ADD x0, x0         # x0 = x0 + x0; result discarded into x0, no architectural effect of interest
 ```
 
 ---
@@ -454,7 +466,7 @@ ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
 - **Arguments**: x6 (a0), x7 (a1); additional arguments spill to stack
 - **Return value**: x6 (a0)
 - **Return address**: x1 (ra) - set by JAL/JALR, used by RET
-- **Stack pointer**: x2 (sp) - points to top of stack
+- **Stack pointer**: x2 (sp) - points to the last pushed word (full-descending)
 
 ### Register Usage
 - **Caller-saved**: x0 (t0), x5 (t1), x6 (a0), x7 (a1)
@@ -463,8 +475,9 @@ ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
 
 ### Stack Management
 - Stack grows downward (toward lower addresses)
+- SP is reset to 0xF000; the first push lands at 0xEFFE–0xEFFF
+- Keep SP even (word-aligned), since SW/LW require aligned addresses
 - Callee must restore stack pointer before returning
-- Word-aligned stack operations recommended
 
 ---
 
@@ -474,7 +487,7 @@ ORI x0, 0         # x0 = x0 + x0 (does nothing useful)
 - **I-Type**: -64 to +63 (7-bit signed)
 - **S-Type/L-Type**: -8 to +7 (4-bit signed)
 - **B-Type**: -16 to +14 bytes (5-bit signed, word-aligned)
-- **J-Type**: -1024 to +1022 bytes (10-bit signed, word-aligned)
+- **J-Type**: -512 to +510 bytes (offset = sext of bits [9:1], sign bit = bit 9, word-aligned)
 - **U-Type**: 0 to 511 (9-bit unsigned immediate 0-511, shifted left 7 bits) 
 
 ### Shift Operations

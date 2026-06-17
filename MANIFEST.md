@@ -6,13 +6,14 @@ Everything generated in this conversation, grouped by purpose.
 
 ```
 .
+├── README.md    ZX16 ISA specification
 ├── MANIFEST.md
 ├── assembler/   zx16asm.py
 ├── simulator/   zx16sim.py
 ├── compiler/    zcc.py, codegen.py, codegen_patterns.py
 │   ├── examples/   01_gpio_set.c .. 07_tea.c
 │   └── tests/      test_patterns.py, test_compile.py, test_embedded.py
-└── docs/        README_corrected.md (ISA spec), SPEC.md (ZC language)
+└── docs/        SPEC.md (ZC language spec)
 ```
 
 This mirrors the upstream `shalan/zx16` layout (assembler/, simulator/, docs/) and
@@ -21,10 +22,11 @@ run from anywhere, e.g. `python3 compiler/tests/test_compile.py`.
 
 ## ZX16 ISA (the assembly target)
 
-- **README_corrected.md** — corrected ZX16 ISA specification. Fixes the original
-  repo's LI16 expansion (LUI+ORI, not ADDI), removes the unimplemented LJ pseudo,
-  corrects NOP/NEG, documents that x0 is general-purpose (not hardwired zero),
-  clarifies U-Type/SYS encodings, and notes branches/jumps are PC+2-relative.
+- **README.md** — the ZX16 ISA specification (the repo's canonical spec, promoted to
+  replace the original). Fixes the original's LI16 expansion (LUI+ORI, not ADDI), the
+  J-range (-512..+510), removes the unimplemented LJ pseudo, corrects NOP/NEG, documents
+  that x0 is general-purpose (not hardwired zero), clarifies U-Type/SYS encodings, and
+  notes branches/jumps are PC+2-relative.
 - **zx16asm.py** — the repo assembler with three bug fixes applied (drop-in replacement):
   1. logical-immediate range (ORI/ANDI/XORI accept full 7-bit field 0..127),
   2. pseudo-instruction sizing (push/pop/la are 4 bytes — labels after them were

@@ -53,3 +53,6 @@ dkms.conf
 
 .vscode
 .bin
+__pycache__/
+*.pyc
+*.bin
