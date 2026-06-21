@@ -12,12 +12,18 @@
 //   * J/JAL offset = sext({imm[9:4],imm[3:1],0})  (range -512..+510).
 //   * LUI/AUIPC immediate = imm9 << 7.
 //   * Reset: PC = RESET_PC (0x0020, the toolchain entry convention), SP(x2)=0xF000.
-//   * ECALL: svc 0x3FF halts; svc/a0 are exposed for the environment to print.
+//   * SYS sub-ops (func3 = inst[5:3]); see docs/INTERRUPTS.md:
+//       0 ECALL (svc 0x3FF halts; svc/a0 exposed), 1 EBREAK, 2 RETI, 3 EI, 4 DI,
+//       5 MFEPC rd, 6 MTEPC rd.  Trap: EPC<-PC, IE<-0, PC<-vector (J-table, entry i*2).
+//       EBREAK -> vector 1 (0x0002); a hardware irq_req (when IE) -> vector irq_num.
 module zx16_core #(
     parameter RESET_PC = 16'h0020
 )(
     input             clk,
     input             rst,
+    // hardware interrupt request (level); taken at an instruction boundary while IE=1
+    input             irq_req,
+    input      [3:0]  irq_num,    // vector number (vector address = irq_num*2)
     // instruction memory (async read)
     output     [15:0] iaddr,
     input      [15:0] idata,
@@ -44,6 +50,8 @@ module zx16_core #(
                OP_L=3'b100, OP_J=3'b101, OP_U=3'b110, OP_SYS=3'b111;
 
     reg [15:0] pc;
+    reg [15:0] epc;       // saved PC for RETI (return from interrupt/trap)
+    reg        ie;        // global interrupt enable
     reg        halt_r;
     reg [15:0] regs [0:7];
 
@@ -113,12 +121,24 @@ module zx16_core #(
     wire is_auipc = (opcode==OP_U) && (inst[15]==1'b1);
     wire [15:0] pc_plus2 = pc + 16'd2;
 
-    // ---- data memory interface ----
+    // ---- SYS sub-functions (func3) + trap control ----
+    wire is_sys    = (opcode==OP_SYS);
+    wire is_ecall  = is_sys && (func3==3'd0);
+    wire is_ebreak = is_sys && (func3==3'd1);
+    wire is_reti   = is_sys && (func3==3'd2);
+    wire is_ei     = is_sys && (func3==3'd3);
+    wire is_di     = is_sys && (func3==3'd4);
+    wire is_mfepc  = is_sys && (func3==3'd5);
+    wire is_mtepc  = is_sys && (func3==3'd6);
+    wire take_irq  = ie && irq_req && ~halt_r;        // HW interrupt at instr boundary
+    wire [15:0] vec_irq = {11'b0, irq_num, 1'b0};     // irq_num * 2
+
+    // ---- data memory interface (suppressed when servicing an interrupt) ----
     assign daddr  = is_store ? (ra + imm_ls) : (rb + imm_ls); // S base=rs1, L base=rs2
     assign dwdata = rb;                                        // S data = rs2
-    assign dword  = (func3==3'd1);                             // SW
-    assign dwe    = is_store && ~halt_r && ~rst;
-    assign dre    = is_load  && ~halt_r;
+    assign dword  = (func3==3'd1);                            // SW
+    assign dwe    = is_store && ~halt_r && ~rst && ~take_irq;
+    assign dre    = is_load  && ~halt_r && ~take_irq;
 
     // load result (LW word / LB signed byte / LBU zero byte)
     wire [15:0] load_data = (func3==3'd1) ? drdata :
@@ -127,6 +147,7 @@ module zx16_core #(
 
     // ---- writeback mux ----
     wire [15:0] wb_data =
+        is_mfepc           ? epc              :  // MFEPC rd <- EPC
         is_load            ? load_data        :
         (is_jal||is_jalr)  ? pc_plus2         :  // link = PC+2
         is_lui             ? uimm             :
@@ -139,7 +160,8 @@ module zx16_core #(
         (opcode==OP_U) ? 1'b1 :
         (opcode==OP_J) ? inst[15] :          // JAL writes, J does not
         (opcode==OP_R) ? (funct4 != 4'hB) :  // all R write except JR
-                         1'b0;               // B / S / SYS
+        is_mfepc       ? 1'b1 :              // MFEPC writes rd
+                         1'b0;               // B / S / other SYS
     wire [2:0] wr_addr = a_field;            // every writing op targets [8:6]
 
     // ---- branch condition ----
@@ -160,16 +182,19 @@ module zx16_core #(
         endcase
     end
 
-    // ---- next PC ----
+    // ---- next PC (interrupt/trap redirects take priority) ----
     wire [15:0] next_pc =
+        take_irq                       ? vec_irq :        // HW interrupt -> vector
+        is_ebreak                      ? 16'h0002 :       // EBREAK -> vector 1
+        is_reti                        ? epc :            // RETI -> EPC
         (opcode==OP_B && branch_taken) ? (pc_plus2 + off_b) :
         (opcode==OP_J)                 ? (pc_plus2 + off_j) :
         is_jr                          ? ra :   // JR  : PC <- reg[8:6]
         is_jalr                        ? rb :   // JALR: PC <- reg[11:9]
                                          pc_plus2;
 
-    // ---- ecall ----
-    assign ecall_valid = (opcode==OP_SYS) && ~halt_r;
+    // ---- ecall (only real ECALL, not the new SYS sub-ops, and not during a trap) ----
+    assign ecall_valid = is_ecall && ~halt_r && ~take_irq;
     assign ecall_svc   = svc;
 
     // ---- sequential state ----
@@ -177,13 +202,25 @@ module zx16_core #(
     always @(posedge clk) begin
         if (rst) begin
             pc     <= RESET_PC;
+            epc    <= 16'd0;
+            ie     <= 1'b0;
             halt_r <= 1'b0;
             for (i=0;i<8;i=i+1) regs[i] <= 16'd0;
             regs[2] <= 16'hF000;          // SP
         end else if (!halt_r) begin
             pc <= next_pc;
-            if (wr_en) regs[wr_addr] <= wb_data;
-            if (opcode==OP_SYS && svc==10'h3FF) halt_r <= 1'b1;
+            if (take_irq) begin
+                epc <= pc;                // save the interrupted PC; instruction is re-run
+                ie  <= 1'b0;              // mask further interrupts
+            end else begin
+                if (wr_en) regs[wr_addr] <= wb_data;
+                if      (is_ebreak) begin epc <= pc; ie <= 1'b0; end
+                else if (is_reti)   ie  <= 1'b1;
+                else if (is_ei)     ie  <= 1'b1;
+                else if (is_di)     ie  <= 1'b0;
+                else if (is_mtepc)  epc <= regs[a_field];
+                if (is_ecall && svc==10'h3FF) halt_r <= 1'b1;
+            end
         end
     end
 endmodule

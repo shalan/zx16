@@ -19,6 +19,7 @@ module tb_zx16_ahb;
 
     zx16_core_ahb cpu(
         .HCLK(HCLK), .HRESETn(HRESETn),
+        .irq_req(1'b0), .irq_num(4'd0),       // no interrupts in the standalone core TB
         .I_HADDR(I_HADDR), .I_HTRANS(I_HTRANS), .I_HWRITE(I_HWRITE), .I_HSIZE(I_HSIZE),
         .I_HBURST(I_HBURST), .I_HPROT(I_HPROT), .I_HWDATA(I_HWDATA),
         .I_HRDATA(I_HRDATA), .I_HREADY(I_HREADY), .I_HRESP(I_HRESP),
@@ -52,7 +53,9 @@ module tb_zx16_ahb;
             if (ecall_valid) begin
                 if      (ecall_svc == 10'h000) $display("OUT INT %0d", $signed(dbg_a0));
                 else if (ecall_svc == 10'h001) $display("OUT CHR %0d", dbg_a0[7:0]);
-                else if (ecall_svc == 10'h3FF) begin $display("OUT HALT"); $finish; end
+                else if (ecall_svc == 10'h3FF) begin
+                    $display("OUT HALT"); $display("CYCLES %0d", cyc); $finish;
+                end
             end
         end
         $display("OUT TIMEOUT"); $finish;

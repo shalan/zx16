@@ -8,18 +8,24 @@
 //   EXECUTE= I-bus data phase    (instruction on HRDATA -> decode/ALU/branch/regwrite)
 // so the fetch of instruction i+1 overlaps the execute of i (~1 CPI on straight code).
 //
-// Hazard policy (kept deliberately simple, no forwarding):
-//   * taken branch/jump  -> 1-cycle flush (squash the in-flight fetch)
-//   * load/store         -> serialized: I-bus idles, D-bus does addr then data phase,
-//                           then the pipeline refills (memory ops cost a few cycles)
-//   * HREADY low         -> freeze: hold bus address/control and all pipeline state
+// Data accesses: ALL D-bus master outputs (HADDR/HTRANS/HWRITE/HSIZE/HWDATA) are
+// REGISTERED. A load/store computes its address in EXECUTE, latches it, and drives the
+// bus from flops on a dedicated address-phase cycle. This keeps the bus outputs at
+// flop->pad timing and removes the long combinational I_HRDATA->D_HADDR through-path
+// (the former critical path). Memory ops cost one extra cycle; they were already
+// serialized, so the throughput cost is negligible.
 //
-// Reuses zx16_alu.v. ECALL: svc 0x3FF halts; svc/a0 exposed for the environment.
+// Hazard policy (simple, no forwarding): taken branch/jump = 1-cycle flush;
+// loads/stores serialize; HREADY low = freeze. Reuses zx16_alu.v. ECALL: svc 0x3FF
+// halts; svc/a0 exposed. Reset PC=RESET_PC, SP(x2)=0xF000.
 module zx16_core_ahb #(
     parameter RESET_PC = 16'h0020
 )(
     input             HCLK,
-    input             HRESETn,        // async, active-low (AHB convention)
+    input             HRESETn,
+    // hardware interrupt request (level) + vector number; taken when IE=1
+    input             irq_req,
+    input      [3:0]  irq_num,
     // ---- Instruction AHB-Lite master ----
     output     [15:0] I_HADDR,
     output     [1:0]  I_HTRANS,
@@ -55,18 +61,27 @@ module zx16_core_ahb #(
                OP_L=3'b100, OP_J=3'b101, OP_U=3'b110, OP_SYS=3'b111;
     localparam TRANS_IDLE=2'b00, TRANS_NONSEQ=2'b10;
 
-    // ---- pipeline / bus state ----
+    // ---- pipeline state ----
     reg [15:0] pcF;        // address presented on the I-bus this cycle (fetch)
     reg [15:0] pcE;        // PC of the instruction in EXECUTE
-    reg        validE;     // EXECUTE holds a real instruction (not a bubble)
-    reg        memph;      // 1 = in the data phase of a load/store
-    reg [15:0] instr_l;    // instruction latched for the load/store data-phase cycle
+    reg        validE;
     reg        halt_r;
+    reg [15:0] epc;        // saved PC for RETI (return from interrupt/trap)
+    reg        ie;         // global interrupt enable
     reg [15:0] regs [0:7];
     integer i;
+    // ---- registered data-bus request (address phase + data phase) ----
+    reg        d_req;      // 1 = drive the registered address phase
+    reg        memph;      // 1 = data phase in progress
+    reg [15:0] d_addr_r;
+    reg        d_write_r;
+    reg [2:0]  d_size_r;
+    reg [15:0] d_wdata_r;
+    reg        d_load_r;
+    reg [2:0]  d_rd_r;     // load destination register
+    reg [2:0]  d_func3_r;  // for load byte/word + sign select
 
-    // EXECUTE instruction: from the I-bus data phase, or the latch during a mem op.
-    wire [15:0] inst   = memph ? instr_l : I_HRDATA;
+    wire [15:0] inst   = I_HRDATA;     // EXECUTE instruction (I-bus data phase)
     wire [2:0]  opcode = inst[2:0];
     wire [2:0]  func3  = inst[5:3];
     wire [2:0]  a_field= inst[8:6];
@@ -127,9 +142,32 @@ module zx16_core_ahb #(
     wire is_jal   = (opcode==OP_J) && inst[15];
     wire is_lui   = (opcode==OP_U) && (inst[15]==1'b0);
     wire is_auipc = (opcode==OP_U) && (inst[15]==1'b1);
+    // SYS sub-functions (func3) + trap control; see docs/INTERRUPTS.md
+    wire is_sys    = (opcode==OP_SYS);
+    wire is_ecall  = is_sys && (func3==3'd0);
+    wire is_ebreak = is_sys && (func3==3'd1);
+    wire is_reti   = is_sys && (func3==3'd2);
+    wire is_ei     = is_sys && (func3==3'd3);
+    wire is_di     = is_sys && (func3==3'd4);
+    wire is_mfepc  = is_sys && (func3==3'd5);
+    wire is_mtepc  = is_sys && (func3==3'd6);
+    wire take_irq  = ie && irq_req;                // gated by exec_avail in the sequencer
+    wire [15:0] vec_irq = {11'b0, irq_num, 1'b0};  // irq_num * 2
     wire [15:0] pc_plus2 = pcE + 16'd2;
 
-    // ---- branch / next sequential PC (computed in EXECUTE) ----
+    // ---- address generation: select base BEFORE a single adder (#4) ----
+    wire [15:0] mem_base = is_store ? ra : rb;     // S base=rs1, L base=rs2
+    wire [15:0] daddr_w  = mem_base + imm_ls;
+    wire [15:0] sdata_w  = (func3==3'd1) ? rb :     // SW: full word
+                           daddr_w[0] ? {rb[7:0],8'b0} : {8'b0,rb[7:0]}; // SB byte lane
+
+    // ---- load result (data phase) from the REGISTERED controls ----
+    wire [7:0]  dbyte = d_addr_r[0] ? D_HRDATA[15:8] : D_HRDATA[7:0];
+    wire [15:0] load_data = (d_func3_r==3'd1) ? D_HRDATA :
+                            (d_func3_r==3'd0) ? {{8{dbyte[7]}}, dbyte} :
+                                                {8'b0, dbyte};
+
+    // ---- branch / next sequential PC ----
     wire sgn_lt = ($signed(ra) < $signed(rb));
     wire usn_lt = (ra < rb);
     reg  branch_taken;
@@ -143,44 +181,39 @@ module zx16_core_ahb #(
         endcase
     end
     wire take_branch = (opcode==OP_B) && branch_taken;
-    wire redirect    = take_branch || (opcode==OP_J) || is_jr || is_jalr;
+    wire redirect    = take_branch || (opcode==OP_J) || is_jr || is_jalr
+                       || is_ebreak || is_reti;
     wire [15:0] target =
-        take_branch ? (pc_plus2 + off_b) :
-        (opcode==OP_J) ? (pc_plus2 + off_j) :
-        is_jr   ? ra :
-        is_jalr ? rb :
-                  pc_plus2;
+        take_branch   ? (pc_plus2 + off_b) :
+        (opcode==OP_J)? (pc_plus2 + off_j) :
+        is_jr     ? ra :
+        is_jalr   ? rb :
+        is_ebreak ? 16'h0002 :       // EBREAK -> vector 1
+        is_reti   ? epc :            // RETI -> EPC
+                    pc_plus2;
 
-    // ---- data bus (load/store) ----
-    wire [15:0] daddr_w = is_store ? (ra + imm_ls) : (rb + imm_ls);
-    wire [7:0]  dbyte = daddr_w[0] ? D_HRDATA[15:8] : D_HRDATA[7:0];
-    wire [15:0] load_data = (func3==3'd1) ? D_HRDATA :              // LW
-                            (func3==3'd0) ? {{8{dbyte[7]}}, dbyte} : // LB  (sign-extend)
-                                            {8'b0, dbyte};           // LBU (zero-extend)
-
-    // ---- writeback ----
+    // ---- writeback (non-memory; loads write back in the data phase) ----
     wire [15:0] wb_data =
-        is_load           ? load_data :
+        is_mfepc          ? epc       :  // MFEPC rd <- EPC
         (is_jal||is_jalr) ? pc_plus2  :
         is_lui            ? uimm      :
         is_auipc          ? (pcE + uimm) :
                             alu_y;
     wire wr_en =
         (opcode==OP_I) ? 1'b1 :
-        (opcode==OP_L) ? 1'b1 :
         (opcode==OP_U) ? 1'b1 :
         (opcode==OP_J) ? inst[15] :
         (opcode==OP_R) ? (funct4 != 4'hB) :
+        is_mfepc       ? 1'b1 :          // MFEPC writes rd
                          1'b0;
     wire [2:0] wr_addr = a_field;
-    wire is_ecall = (opcode==OP_SYS);
 
-    // ---- control: when is EXECUTE active / which bus phase ----
-    wire exec_avail = validE && I_HREADY;            // E instruction valid this cycle
-    wire mem_start  = exec_avail && is_mem && !memph; // begin a load/store (D addr phase)
+    // ---- control ----
+    wire exec_avail = validE && I_HREADY;
+    wire mem_begin  = exec_avail && is_mem && !d_req && !memph;
 
-    // I-bus: fetch unless halted, in a mem data phase, or starting a mem op (idle then)
-    wire do_fetch = !halt_r && !memph && !mem_start;
+    // I-bus: fetch unless halted or servicing a data access
+    wire do_fetch = !halt_r && !memph && !d_req && !mem_begin;
     assign I_HADDR  = pcF;
     assign I_HTRANS = do_fetch ? TRANS_NONSEQ : TRANS_IDLE;
     assign I_HWRITE = 1'b0;
@@ -189,56 +222,76 @@ module zx16_core_ahb #(
     assign I_HPROT  = 4'b0010;
     assign I_HWDATA = 16'd0;
 
-    // D-bus: address phase when starting a mem op; data phase while memph
-    assign D_HADDR  = daddr_w;
-    assign D_HTRANS = mem_start ? TRANS_NONSEQ : TRANS_IDLE;
-    assign D_HWRITE = is_store;
-    assign D_HSIZE  = (func3==3'd1) ? 3'b001 : 3'b000;   // SW/LW halfword, byte otherwise
+    // D-bus: every master output is registered -> flop->pad timing
+    assign D_HADDR  = d_addr_r;
+    assign D_HTRANS = d_req ? TRANS_NONSEQ : TRANS_IDLE;
+    assign D_HWRITE = d_write_r;
+    assign D_HSIZE  = d_size_r;
     assign D_HBURST = 3'b000;
     assign D_HPROT  = 4'b0011;
-    // store data positioned by byte lane for SB; driven in the data phase
-    assign D_HWDATA = (func3==3'd1) ? rb :
-                      daddr_w[0] ? {rb[7:0], 8'b0} : {8'b0, rb[7:0]};
+    assign D_HWDATA = d_wdata_r;
 
-    assign ecall_valid = exec_avail && is_ecall && !memph;
+    assign ecall_valid = exec_avail && is_ecall && !d_req && !memph && !take_irq;
     assign ecall_svc   = svc;
 
     // ---- sequential ----
     always @(posedge HCLK or negedge HRESETn) begin
         if (!HRESETn) begin
-            pcF <= RESET_PC; pcE <= 16'd0; validE <= 1'b0;
-            memph <= 1'b0; halt_r <= 1'b0; instr_l <= 16'd0;
+            pcF <= RESET_PC; pcE <= 16'd0; validE <= 1'b0; halt_r <= 1'b0;
+            d_req <= 1'b0; memph <= 1'b0; ie <= 1'b0; epc <= 16'd0;
+            // d_addr_r/d_write_r/d_size_r/d_wdata_r/d_load_r/d_rd_r/d_func3_r are
+            // write-before-read (loaded in EXECUTE, consumed only in the later address/
+            // data phases, which cannot occur until after they are loaded). They are
+            // intentionally NOT reset so they infer enable flip-flops (edfxtp) -- this
+            // keeps the conditional-load mux off the address-adder critical path.
             for (i=0;i<8;i=i+1) regs[i] <= 16'd0;
             regs[2] <= 16'hF000;
         end else if (halt_r) begin
             // frozen
         end else if (memph) begin
-            // ---- load/store data phase ----
+            // ---- data phase ----
             if (D_HREADY) begin
-                if (wr_en) regs[wr_addr] <= wb_data;   // load writeback (store: wr_en=0)
+                if (d_load_r) regs[d_rd_r] <= load_data;
                 memph  <= 1'b0;
                 pcF    <= pcE + 16'd2;   // refetch the instruction after the mem op
                 validE <= 1'b0;          // refill bubble
             end
-            // else: wait state -> hold
+        end else if (d_req) begin
+            // ---- address phase (registered outputs) ----
+            if (D_HREADY) begin d_req <= 1'b0; memph <= 1'b1; end
         end else if (validE) begin
             if (I_HREADY) begin
-                if (is_mem) begin
-                    instr_l <= inst;     // latch; D addr phase issued this cycle
-                    memph   <= 1'b1;
+                if (take_irq) begin
+                    // hardware interrupt: squash the EXECUTE instruction and vector
+                    epc <= pcE; ie <= 1'b0;
+                    pcF <= vec_irq; validE <= 1'b0;
+                end else if (is_mem) begin
+                    // register address/control/data; start the address phase next cycle
+                    d_addr_r  <= daddr_w;
+                    d_write_r <= is_store;
+                    d_size_r  <= (func3==3'd1) ? 3'b001 : 3'b000;
+                    d_wdata_r <= sdata_w;
+                    d_load_r  <= is_load;
+                    d_rd_r    <= a_field;
+                    d_func3_r <= func3;
+                    d_req     <= 1'b1;
                 end else begin
                     if (wr_en) regs[wr_addr] <= wb_data;
+                    if      (is_ebreak) begin epc <= pcE; ie <= 1'b0; end
+                    else if (is_reti)   ie  <= 1'b1;
+                    else if (is_ei)     ie  <= 1'b1;
+                    else if (is_di)     ie  <= 1'b0;
+                    else if (is_mtepc)  epc <= regs[a_field];
                     if (is_ecall && svc==10'h3FF) halt_r <= 1'b1;
                     if (redirect) begin
-                        pcF <= target; validE <= 1'b0;          // flush
+                        pcF <= target; validE <= 1'b0;
                     end else begin
                         pcE <= pcF; pcF <= pcF + 16'd2; validE <= 1'b1;
                     end
                 end
             end
-            // else: fetch wait state -> hold
         end else begin
-            // ---- bubble: address phase of pcF in flight; capture next cycle ----
+            // ---- refill bubble: address phase of pcF in flight ----
             if (I_HREADY) begin
                 pcE <= pcF; pcF <= pcF + 16'd2; validE <= 1'b1;
             end
