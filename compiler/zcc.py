@@ -11,6 +11,8 @@ use struct pointers / array indices).
 This file is built and tested incrementally. Stage 1: lexer.
 """
 
+import os, re
+
 # ---------------------------------------------------------------------------
 # Tokens
 # ---------------------------------------------------------------------------
@@ -389,8 +391,78 @@ class Parser:
         self.err("expected expression")
 
 
-def parse(src):
-    return Parser(lex(src)).parse_program()
+# ---------------------------------------------------------------------------
+# Preprocessor: #include "file" (recursive, include-once) + object-like #define
+# ---------------------------------------------------------------------------
+
+class PreprocError(Exception): pass
+
+def preprocess(text, base_dir='.'):
+    """Resolve `#include "file"` (recursive; each file included at most once) and
+    collect object-like `#define NAME value`. Returns (expanded_text, defines).
+    Macro *expansion* is done at the token level in parse(). Only `#include "..."`
+    and object-like `#define` are supported (no <system> headers, no function-like
+    macros, no conditionals)."""
+    defines = {}
+    included = set()
+    out = []
+    def go(txt, cur_dir):
+        for raw in txt.split('\n'):
+            s = raw.strip()
+            if s.startswith('#'):
+                s = re.sub(r'\s*//.*$', '', s).rstrip()   # strip trailing comment on directives
+            if s.startswith('#include'):
+                m = re.match(r'#include\s+"([^"]+)"\s*$', s)
+                if not m:
+                    raise PreprocError(f'bad #include (use #include "file"): {s}')
+                inc = m.group(1)
+                cand = os.path.join(cur_dir, inc)
+                if not os.path.exists(cand) and os.path.exists(inc):
+                    cand = inc                          # fall back to cwd-relative
+                ap = os.path.abspath(cand)
+                if ap in included:
+                    continue                            # include-once
+                if not os.path.exists(ap):
+                    raise PreprocError(f'#include file not found: {inc}')
+                included.add(ap)
+                with open(ap) as f:
+                    go(f.read(), os.path.dirname(ap))
+            elif s.startswith('#define'):
+                m = re.match(r'#define\s+([A-Za-z_]\w*)(\(?)(.*)$', s)
+                if not m:
+                    raise PreprocError(f'bad #define: {s}')
+                if m.group(2) == '(':
+                    raise PreprocError(f'function-like #define not supported: {s}')
+                defines[m.group(1)] = m.group(3).strip()
+            elif s.startswith('#'):
+                raise PreprocError(f'unsupported preprocessor directive: {s}')
+            else:
+                out.append(raw)
+    go(text, base_dir)
+    return '\n'.join(out), defines
+
+def expand_macros(tokens, defines):
+    """Object-like macro expansion over a token stream. Supports nested macros; a
+    macro never expands itself (prevents infinite recursion). Expanded tokens keep
+    the use-site line number for error reporting."""
+    if not defines:
+        return tokens
+    repl = {name: [t for t in lex(val) if t.kind != T_EOF] for name, val in defines.items()}
+    out = []
+    def emit(tok, active, line):
+        if tok.kind == T_ID and tok.val in defines and tok.val not in active:
+            for mt in repl[tok.val]:
+                emit(mt, active | {tok.val}, line)
+        else:
+            out.append(Token(tok.kind, tok.val, line))
+    for t in tokens:
+        emit(t, frozenset(), t.line)
+    return out
+
+def parse(src, base_dir='.'):
+    text, defines = preprocess(src, base_dir)
+    toks = expand_macros(lex(text), defines)
+    return Parser(toks).parse_program()
 
 
 def dump_ast(p, idx, ind=0):
