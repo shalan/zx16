@@ -26,6 +26,11 @@ class ZX16:
         self.halted = False
         self.out = []             # captured stdout (ints/chars)
         self.cycles = 0
+        # --- interrupts / traps (see docs/INTERRUPTS.md) ---
+        self.ie = False           # global interrupt enable
+        self.epc = 0              # return PC saved on trap; restored by RETI
+        self.irq_pending = False  # a hardware interrupt is requested
+        self.irq_vec = 0          # its vector address (vector_num * 2)
         self.max_cycles = 5_000_000
         # --- MMIO device model (0xF000..0xFFFF) ---
         self.mmio_base = 0xF000
@@ -68,7 +73,19 @@ class ZX16:
     def lb(self, a):
         return self._read_byte(a)
 
+    def raise_irq(self, vector_num):
+        """Request a hardware interrupt that vectors to entry `vector_num` (address
+        vector_num*2). Taken at the next instruction boundary while IE=1."""
+        self.irq_pending = True
+        self.irq_vec = (vector_num * 2) & MASK
+
     def step(self):
+        # take a pending hardware interrupt at the instruction boundary
+        if self.ie and self.irq_pending:
+            self.epc = self.pc
+            self.ie = False
+            self.irq_pending = False
+            self.pc = self.irq_vec
         w = self.lw(self.pc)
         op = w & 0x7
         f3 = (w >> 3) & 0x7
@@ -169,9 +186,15 @@ class ZX16:
             if flag == 0: self.reg[rd] = val                 # LUI
             else: self.reg[rd] = (self.pc + val) & MASK       # AUIPC
 
-        elif op == 7:  # SYS  ECALL
-            svc = (w >> 6) & 0x3FF
-            self.ecall(svc)
+        elif op == 7:  # SYS: ECALL / EBREAK / RETI / EI / DI / MFEPC / MTEPC  (f3=[5:3])
+            if   f3 == 0x0: self.ecall((w >> 6) & 0x3FF)                          # ECALL
+            elif f3 == 0x1: self.epc = self.pc; self.ie = False; nextpc = 0x0002  # EBREAK -> vec 1
+            elif f3 == 0x2: nextpc = self.epc; self.ie = True                     # RETI
+            elif f3 == 0x3: self.ie = True                                        # EI
+            elif f3 == 0x4: self.ie = False                                       # DI
+            elif f3 == 0x5: self.reg[rd] = self.epc                               # MFEPC rd
+            elif f3 == 0x6: self.epc = self.reg[rd]                               # MTEPC rd
+            else: raise Exception(f"bad SYS f3 {f3} @ {self.pc:04x}")
 
         self.pc = nextpc
         self.cycles += 1
