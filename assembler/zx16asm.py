@@ -1273,6 +1273,8 @@ class ZX16Assembler:
             return (3 << 3) | InstructionFormat.SYS_TYPE.value      # 0x001F
         elif mnemonic == 'di':
             return (4 << 3) | InstructionFormat.SYS_TYPE.value      # 0x0027
+        elif mnemonic == 'step':
+            return (7 << 3) | InstructionFormat.SYS_TYPE.value      # 0x003F
         elif mnemonic in ('mfepc', 'mtepc'):
             if len(operands) != 1:
                 raise SyntaxError(f"{mnemonic} requires 1 register operand")

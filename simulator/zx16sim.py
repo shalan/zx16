@@ -31,6 +31,8 @@ class ZX16:
         self.epc = 0              # return PC saved on trap; restored by RETI
         self.irq_pending = False  # a hardware interrupt is requested
         self.irq_vec = 0          # its vector address (vector_num * 2)
+        self.step_req = False     # STEP requested (armed by the next RETI)
+        self.step_armed = False   # step active: trap to vector 1 after one instruction
         self.max_cycles = 5_000_000
         # --- MMIO device model (0xF000..0xFFFF) ---
         self.mmio_base = 0xF000
@@ -80,8 +82,9 @@ class ZX16:
         self.irq_vec = (vector_num * 2) & MASK
 
     def step(self):
-        # take a pending hardware interrupt at the instruction boundary
-        if self.ie and self.irq_pending:
+        armed = self.step_armed   # the instruction this cycle is the one being stepped
+        # take a pending hardware interrupt at the instruction boundary (not mid-step)
+        if self.ie and self.irq_pending and not armed:
             self.epc = self.pc
             self.ie = False
             self.irq_pending = False
@@ -189,14 +192,21 @@ class ZX16:
         elif op == 7:  # SYS: ECALL / EBREAK / RETI / EI / DI / MFEPC / MTEPC  (f3=[5:3])
             if   f3 == 0x0: self.ecall((w >> 6) & 0x3FF)                          # ECALL
             elif f3 == 0x1: self.epc = self.pc; self.ie = False; nextpc = 0x0002  # EBREAK -> vec 1
-            elif f3 == 0x2: nextpc = self.epc; self.ie = True                     # RETI
+            elif f3 == 0x2:                                                       # RETI
+                nextpc = self.epc; self.ie = True
+                if self.step_req: self.step_armed = True; self.step_req = False
             elif f3 == 0x3: self.ie = True                                        # EI
             elif f3 == 0x4: self.ie = False                                       # DI
             elif f3 == 0x5: self.reg[rd] = self.epc                               # MFEPC rd
             elif f3 == 0x6: self.epc = self.reg[rd]                               # MTEPC rd
-            else: raise Exception(f"bad SYS f3 {f3} @ {self.pc:04x}")
+            elif f3 == 0x7: self.step_req = True                                  # STEP (armed by RETI)
 
         self.pc = nextpc
+        if armed and not self.halted:        # single-step: trap to vector 1 after one instruction
+            self.step_armed = False
+            self.epc = self.pc
+            self.ie = False
+            self.pc = 0x0002
         self.cycles += 1
 
     def ecall(self, svc):

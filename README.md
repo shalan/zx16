@@ -82,8 +82,9 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
   IRQs (assigned by the SoC).
 - **Trap mechanism** (`EPC` + `IE` registers): a hardware IRQ is taken at an instruction
   boundary while `IE=1`; `EBREAK` always traps. Entry does `EPC←PC`, `IE←0`, `PC←i*2`;
-  return is via `RETI` (`PC←EPC`, `IE←1`). Full spec and the `EBREAK`/`RETI`/`EI`/`DI`/
-  `MFEPC`/`MTEPC` instructions: [docs/INTERRUPTS.md](docs/INTERRUPTS.md).
+  return is via `RETI` (`PC←EPC`, `IE←1`). `STEP` single-steps the debuggee one
+  instruction. Full spec and the `EBREAK`/`RETI`/`EI`/`DI`/`MFEPC`/`MTEPC`/`STEP`
+  instructions: [docs/INTERRUPTS.md](docs/INTERRUPTS.md).
 
 ---
 
@@ -305,6 +306,7 @@ SYS uses `func3` (bits [5:3]) to select a sub-function (see [docs/INTERRUPTS.md]
 | **DI**    | `100` | Disable interrupts (`IE←0`)                   |
 | **MFEPC** | `101` | `rd ← EPC` (rd in [8:6])                      |
 | **MTEPC** | `110` | `EPC ← rd` (rd in [8:6])                      |
+| **STEP**  | `111` | single-step: run one instruction after the next `RETI`, then trap |
 
 #### ECALL Services
 
@@ -381,6 +383,7 @@ This table shows, for each instruction, the key fields used to distinguish it: t
 | RETI       | SYS  | `111`        | —              | `010`       | —                       | PC←EPC, IE←1                  |
 | EI / DI    | SYS  | `111`        | —              | `011`/`100` | —                       | IE←1 / IE←0                   |
 | MFEPC/MTEPC| SYS  | `111`        | —              | `101`/`110` | —                       | rd←EPC / EPC←rd               |
+| STEP       | SYS  | `111`        | —              | `111`       | —                       | single-step (trap after 1 instr) |
 
 ---
 
