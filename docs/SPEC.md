@@ -105,7 +105,7 @@ Precedence (low -> high), left-associative except assignment and unary:
 6.  bitwise and `&`
 7.  shift `<<` `>>`   (`>>` arithmetic on signed, logical on unsigned)
 8.  additive `+` `-`
-9.  multiplicative `*` `/` `%`
+9.  multiplicative `*` `/` `%`   (`/` `%` signed or unsigned per operand type)
 10. unary `-` `~` `*`(deref) `&`(address-of) `(type)`(cast)
 11. postfix `f(args)` `a[i]` `s.field` `p->field`
 12. primary: identifier, int literal, char literal, string literal, `(expr)`
@@ -119,8 +119,12 @@ Precedence (low -> high), left-associative except assignment and unary:
   optimization, every access already emits a real load/store, so `volatile` is
   honored automatically; the keyword is accepted for portability and intent.
 - String literals have type `char *`, stored in a read-only pool.
-- `*` `/` `%` use runtime helpers `__mul` `__div` `__mod`; all other operators are
-  single ZX16 instructions.
+- `*` `/` `%` use runtime helpers; every other operator is a single ZX16 instruction.
+  `/` and `%` go through `__udivmod` (restoring binary long division, bounded to 16
+  iterations) — directly when either operand is unsigned/pointer, else via the signed
+  wrappers `__div`/`__mod`. Signed `/` truncates toward zero and `%` takes the sign of
+  the dividend (C99); division by zero is defined to yield quotient `0xFFFF` (no trap,
+  no hang).
 
 ## Lexical
 
@@ -129,7 +133,11 @@ Precedence (low -> high), left-associative except assignment and unary:
 - Char literals: `'a'`, escapes `\n \t \0 \\ \' \r`.
 - String literals: `"..."`, same escapes.
 - Comments: `//` to end of line. (No `/* */`.)
-- No preprocessor. Single source file; use `int`/`unsigned` globals as constants.
+- Minimal preprocessor: `#include "file"` (recursive, **include-once**; no `<system>`
+  headers) and object-like `#define NAME value` (single line, no parameters; nested
+  macros allowed). A `#define` constant may be used where a literal is required (e.g.
+  array sizes). Not supported: function-like macros, conditionals (`#if`/`#ifdef`),
+  `#undef`, `##`, `#`. `int`/`unsigned` globals still work as RAM-backed constants.
 
 ## Runtime / ABI (ZX16)
 
@@ -142,10 +150,29 @@ Precedence (low -> high), left-associative except assignment and unary:
   clobbers it.
 - Frame: `push ra; push s0; mv s0, sp; sub sp for locals`. Param i at `s0+4+2i`;
   local i at `s0-2-2i`. `s0` = x3 = frame pointer.
-- Runtime helpers `__mul/__div/__mod` are **callee-saved for x3/x4**.
+- Runtime helpers preserve the frame pointer `x3`. `__mul` takes stack args; the
+  divide/modulo helpers (`__udivmod`, signed `__div`/`__mod`) take register args
+  (`x5`=dividend, `x4`=divisor; result in `x6`, plus `x7`=remainder for `__udivmod`)
+  and also preserve `x1`.
 - `crt0` sets `sp = 0xF000`, calls `main`, halts via `ecall 0x3FF`.
 - MMIO: absolute addresses via integer->pointer cast, e.g. `*(volatile char*)0xF000`.
   Byte access uses `lb`/`lbu`/`sb`; word uses `lw`/`sw`.
+
+## Standard library (source-level, `compiler/lib/`)
+
+`#include` a header-equivalent and call what you need. **Dead-function elimination**
+(codegen emits only functions reachable from `main`) means unused entries cost no
+code, so pulling in the whole library is free for what you don't call.
+
+- `string.c` — `strlen`, `strcpy`, `strncpy`, `strcat`, `strcmp`, `strncmp`, `strchr`,
+  `memcpy`, `memset`, `memcmp`, `memmove`.
+- `ctype.c` — `isdigit`, `isalpha`, `isalnum`, `isspace`, `isupper`, `islower`,
+  `toupper`, `tolower`.
+- `stdlib.c` — `atoi`, `itoa`, `utoa`, `itohex`. (No `printf`: ZC has no varargs, so
+  format a number into a buffer, then print it.)
+- `stdio.c` — `putstr`, `puts` (appends `\n`), `puthex`. `putchar`/`putint` are
+  compiler intrinsics (ECALL), not library functions.
+- `libc.c` — `#include`s all of the above (include-once).
 
 ## Codegen rules forced by ZX16 (validated against the simulator)
 

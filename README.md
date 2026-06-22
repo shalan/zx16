@@ -76,8 +76,15 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 - **Stack**: Grows downward; SP initialized to 0xF000, first push lands at 0xEFFE
 
 ## Interrupt Vector Table
-- 16 fixed entries at 0x0000–0x001E (2 bytes each)  
-- Reset handler at 0x0000; others at 0x0002, 0x0004, …, 0x001E  
+- 16 fixed entries at 0x0000–0x001E (2 bytes each); each entry is a `J` instruction to
+  the handler (jump table).
+- Vector 0 = reset; vector 1 = `EBREAK` (software breakpoint); vectors 2–15 = hardware
+  IRQs (assigned by the SoC).
+- **Trap mechanism** (`EPC` + `IE` registers): a hardware IRQ is taken at an instruction
+  boundary while `IE=1`; `EBREAK` always traps. Entry does `EPC←PC`, `IE←0`, `PC←i*2`;
+  return is via `RETI` (`PC←EPC`, `IE←1`). `STEP` single-steps the debuggee one
+  instruction. Full spec and the `EBREAK`/`RETI`/`EI`/`DI`/`MFEPC`/`MTEPC`/`STEP`
+  instructions: [docs/INTERRUPTS.md](docs/INTERRUPTS.md).
 
 ---
 
@@ -288,9 +295,18 @@ zero. The full opcode that identifies SYS-Type is thus the 6-bit pattern `000111
 | **AUIPC** | rd ← PC + (imm[15:7] << 7)       |
 
 ### SYS-Type Instructions
-| Mnemonic | Description                              |
-|:--------:|:-----------------------------------------|
-| **ECALL**| Trap to service number in bits [15:6]   |
+SYS uses `func3` (bits [5:3]) to select a sub-function (see [docs/INTERRUPTS.md](docs/INTERRUPTS.md)):
+
+| Mnemonic  | func3 | Description                                  |
+|:---------:|:-----:|:---------------------------------------------|
+| **ECALL** | `000` | Trap to service number in bits [15:6]        |
+| **EBREAK**| `001` | Software breakpoint → trap to vector 1        |
+| **RETI**  | `010` | Return from interrupt/trap (`PC←EPC; IE←1`)   |
+| **EI**    | `011` | Enable interrupts (`IE←1`)                    |
+| **DI**    | `100` | Disable interrupts (`IE←0`)                   |
+| **MFEPC** | `101` | `rd ← EPC` (rd in [8:6])                      |
+| **MTEPC** | `110` | `EPC ← rd` (rd in [8:6])                      |
+| **STEP**  | `111` | single-step: run one instruction after the next `RETI`, then trap |
 
 #### ECALL Services
 
@@ -361,8 +377,13 @@ This table shows, for each instruction, the key fields used to distinguish it: t
 | **U-Type** |||||||
 | LUI      | U      | `110`        | —              | —           | flag=0                  | imm from bits [15:7]<<7      |
 | AUIPC    | U      | `110`        | —              | —           | flag=1                  | PC + (imm<<7)                |
-| **SYS-Type** |||||||
-| ECALL    | SYS    | `111`        | —              | —           | —                       | trap to service number [15:6] |
+| **SYS-Type** (func3 = bits [5:3]) |||||||
+| ECALL      | SYS  | `111`        | —              | `000`       | —                       | trap to service number [15:6] |
+| EBREAK     | SYS  | `111`        | —              | `001`       | —                       | breakpoint → vector 1         |
+| RETI       | SYS  | `111`        | —              | `010`       | —                       | PC←EPC, IE←1                  |
+| EI / DI    | SYS  | `111`        | —              | `011`/`100` | —                       | IE←1 / IE←0                   |
+| MFEPC/MTEPC| SYS  | `111`        | —              | `101`/`110` | —                       | rd←EPC / EPC←rd               |
+| STEP       | SYS  | `111`        | —              | `111`       | —                       | single-step (trap after 1 instr) |
 
 ---
 

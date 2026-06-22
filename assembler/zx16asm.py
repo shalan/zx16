@@ -699,7 +699,12 @@ class ZX16Assembler:
                 
                 if directive == '.org':
                     if parser.current_token.type == TokenType.IMMEDIATE:
-                        self.current_address = int(parser.current_token.value)
+                        org = int(parser.current_token.value)
+                        # If nothing has been emitted in this section yet, .org sets
+                        # the section's origin; otherwise it's a forward skip.
+                        if self.current_address == self.section_addresses[self.current_section]:
+                            self.section_addresses[self.current_section] = org
+                        self.current_address = org
                         parser.advance()
                     else:
                         self.add_error("Expected address after .org", line)
@@ -873,9 +878,18 @@ class ZX16Assembler:
                 
                 if directive == '.org':
                     if parser.current_token.type == TokenType.IMMEDIATE:
-                        self.current_address = int(parser.current_token.value)
+                        org = int(parser.current_token.value)
+                        base = self.section_addresses[self.current_section]
+                        if len(current_section_data) == 0:
+                            self.section_addresses[self.current_section] = org   # set origin
+                        elif org >= base + len(current_section_data):
+                            current_section_data.extend(            # forward skip -> pad zeros
+                                b'\x00' * (org - base - len(current_section_data)))
+                        else:
+                            self.add_error(".org cannot move backward within a section", line)
+                        self.current_address = org
                         parser.advance()
-                
+
                 elif directive == '.text':
                     self.current_section = '.text'
                     self.current_address = self.section_addresses['.text']
@@ -1249,7 +1263,25 @@ class ZX16Assembler:
             
             encoding = (svc << 6) | InstructionFormat.SYS_TYPE.value
             return encoding
-        
+
+        # SYS sub-functions (bits[5:3]) -- interrupts/traps, see docs/INTERRUPTS.md
+        elif mnemonic == 'ebreak':
+            return (1 << 3) | InstructionFormat.SYS_TYPE.value      # 0x000F
+        elif mnemonic == 'reti':
+            return (2 << 3) | InstructionFormat.SYS_TYPE.value      # 0x0017
+        elif mnemonic == 'ei':
+            return (3 << 3) | InstructionFormat.SYS_TYPE.value      # 0x001F
+        elif mnemonic == 'di':
+            return (4 << 3) | InstructionFormat.SYS_TYPE.value      # 0x0027
+        elif mnemonic == 'step':
+            return (7 << 3) | InstructionFormat.SYS_TYPE.value      # 0x003F
+        elif mnemonic in ('mfepc', 'mtepc'):
+            if len(operands) != 1:
+                raise SyntaxError(f"{mnemonic} requires 1 register operand")
+            rd = operands[0]
+            f3 = 5 if mnemonic == 'mfepc' else 6
+            return (rd << 6) | (f3 << 3) | InstructionFormat.SYS_TYPE.value
+
         else:
             raise SyntaxError(f"Unknown instruction: {mnemonic}")
     

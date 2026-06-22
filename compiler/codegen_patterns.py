@@ -107,18 +107,9 @@ def bin_op(e, op, runtime_calls):
         e.emit("    la x4, __mul")
         e.emit("    jalr x1, x4")
         e.emit("    addi x2, 4")
-    elif op == '/':
-        e.emit("    push x6")
-        e.emit("    push x5")
-        e.emit("    la x4, __div")
-        e.emit("    jalr x1, x4")
-        e.emit("    addi x2, 4")
-    elif op == '%':
-        e.emit("    push x6")
-        e.emit("    push x5")
-        e.emit("    la x4, __mod")
-        e.emit("    jalr x1, x4")
-        e.emit("    addi x2, 4")
+    # '/' and '%' are NOT handled here -- they need signed/unsigned selection and
+    # go through div_op()/mod_op() (see gen_binop), which call the corrected runtime
+    # (__udivmod / __div / __mod). Reaching them here is a bug.
     elif op in ('<', '>', '<=', '>=', '==', '!='):
         # produce 0/1 in x6 using branches
         t = e.label("cmp")
@@ -137,6 +128,27 @@ def bin_op(e, op, runtime_calls):
         e.emit(f"{d}:")
     else:
         raise ValueError(f"unknown op {op}")
+
+def _divmod_call(e, routine):
+    """At entry x5=dividend (left), x6=divisor (right). Call a div/mod runtime
+    routine with the register ABI (x5=N, x4=D) -> quotient x6, remainder x7."""
+    e.emit("    mv x4, x6")            # divisor -> x4  (dividend already in x5)
+    e.emit(f"    la x7, {routine}")
+    e.emit("    jalr x1, x7")
+
+def div_op(e, unsigned):
+    """x6 = left / right. Signedness picks the (correct) runtime routine."""
+    _divmod_call(e, "__udivmod" if unsigned else "__div")
+    # quotient already in x6
+
+def mod_op(e, unsigned):
+    """x6 = left %% right (C truncation; remainder takes the dividend's sign)."""
+    if unsigned:
+        _divmod_call(e, "__udivmod")
+        e.emit("    mv x6, x7")        # remainder
+    else:
+        _divmod_call(e, "__mod")
+        # remainder already in x6
 
 def unary_neg(e):
     """x6 = -x6"""
@@ -367,11 +379,13 @@ def emit_asm(e, text):
 # Program skeleton
 # ---------------------------------------------------------------------------
 
+STACK_TOP = 0xF000   # initial SP; SoC builds lower this below the peripheral window
+
 def crt0(e):
     e.emit(".text")
     e.emit(".org 0x0020")
     e.emit("__start:")
-    e.emit("    li16 x2, 0xF000")
+    e.emit(f"    li16 x2, 0x{STACK_TOP:04X}")
     e.emit("    la x5, main")
     e.emit("    jalr x1, x5")
     e.emit("    ecall 0x3FF")
@@ -395,32 +409,90 @@ def runtime(e):
     e.emit("    pop x4")
     e.emit("    pop x3")
     e.emit("    ret")
-    e.emit("__div:")
-    e.emit("    push x3")
-    e.emit("    push x4")
-    e.emit("    lw x3, 4(x2)")
-    e.emit("    lw x4, 6(x2)")
-    e.emit("    li x6, 0")
-    e.emit("__div_lp:")
-    e.emit("    blt x3, x4, __div_done")
-    e.emit("    sub x3, x4")
-    e.emit("    addi x6, 1")
-    e.emit("    j __div_lp")
-    e.emit("__div_done:")
-    e.emit("    pop x4")
+    # ---- division / modulo --------------------------------------------------
+    # The previous routines used a SIGNED compare (blt) in a repeated-subtraction
+    # loop, so they were correct only for operands in [0,32767]: unsigned values
+    # >32767 and signed negatives both gave wrong results (e.g. 65535/10 -> 0,
+    # -7/2 -> 0). These replacements are correct for the full range.
+    #
+    # __udivmod: unsigned divide via restoring binary long division -- ALWAYS 16
+    # iterations (bounded time; div-by-zero yields 0xFFFF rather than looping).
+    #   in:  x5 = N (dividend), x4 = D (divisor)
+    #   out: x6 = quotient, x7 = remainder ; preserves x1 and x3 (frame ptr)
+    # N is consumed MSB-first: each step shifts N left (its top bit feeds the
+    # remainder) and shifts a quotient bit into N's freed LSB, so x5 finishes
+    # holding the quotient.
+    e.emit("__udivmod:")
+    e.emit("    push x3")            # x3 reused as the per-bit carry; restored below
+    e.emit("    li x6, 0")           # remainder = 0
+    e.emit("    li x7, 16")          # bit counter
+    e.emit("__udm_lp:")
+    e.emit("    mv x3, x5")
+    e.emit("    srli x3, 15")        # carry = MSB of N
+    e.emit("    add x5, x5")         # N <<= 1  (LSB now free for a quotient bit)
+    e.emit("    add x6, x6")         # R <<= 1
+    e.emit("    add x6, x3")         # R |= carry
+    e.emit("    bltu x6, x4, __udm_no")   # R <u D -> quotient bit stays 0
+    e.emit("    sub x6, x4")         # R -= D
+    e.emit("    addi x5, 1")         # quotient bit = 1
+    e.emit("__udm_no:")
+    e.emit("    addi x7, -1")
+    e.emit("    bz x7, __udm_end")   # cnt==0 -> done. NOTE: conditional branches reach
+    e.emit("    j __udm_lp")         # only ~+-7 instr, so loop back via j (long range).
+    e.emit("__udm_end:")
+    e.emit("    mv x7, x6")          # remainder -> x7
+    e.emit("    mv x6, x5")          # quotient  -> x6
     e.emit("    pop x3")
     e.emit("    ret")
-    e.emit("__mod:")
-    e.emit("    push x3")
-    e.emit("    push x4")
-    e.emit("    lw x3, 4(x2)")
-    e.emit("    lw x4, 6(x2)")
-    e.emit("__mod_lp:")
-    e.emit("    blt x3, x4, __mod_done")
-    e.emit("    sub x3, x4")
-    e.emit("    j __mod_lp")
-    e.emit("__mod_done:")
-    e.emit("    mv x6, x3")
-    e.emit("    pop x4")
+    # __div: signed divide, truncation toward zero (quotient negative iff exactly
+    # one of N,D is negative). in x5=N, x4=D -> x6 = N/D.
+    e.emit("__div:")
+    e.emit("    push x1")            # __div calls __udivmod
+    e.emit("    push x3")            # save frame ptr; reuse x3 as the sign flag
+    e.emit("    mv x3, x5")
+    e.emit("    xor x3, x4")         # MSB = sign(N) ^ sign(D)
+    e.emit("    srli x3, 15")        # x3 = 1 iff quotient must be negated
+    e.emit("    mv x6, x5")          # |N|
+    e.emit("    srli x6, 15")
+    e.emit("    bz x6, __div_na")
+    e.emit("    neg x5")
+    e.emit("__div_na:")
+    e.emit("    mv x6, x4")          # |D|
+    e.emit("    srli x6, 15")
+    e.emit("    bz x6, __div_da")
+    e.emit("    neg x4")
+    e.emit("__div_da:")
+    e.emit("    la x6, __udivmod")
+    e.emit("    jalr x1, x6")        # x6 = |N| / |D|
+    e.emit("    bz x3, __div_done")
+    e.emit("    neg x6")
+    e.emit("__div_done:")
     e.emit("    pop x3")
+    e.emit("    pop x1")
+    e.emit("    ret")
+    # __mod: signed remainder; result takes the sign of the dividend N (C99:
+    # a == (a/b)*b + a%b). in x5=N, x4=D -> x6 = N % D.
+    e.emit("__mod:")
+    e.emit("    push x1")
+    e.emit("    push x3")
+    e.emit("    mv x3, x5")
+    e.emit("    srli x3, 15")        # x3 = sign(N) -> sign of remainder
+    e.emit("    mv x6, x5")          # |N|
+    e.emit("    srli x6, 15")
+    e.emit("    bz x6, __mod_na")
+    e.emit("    neg x5")
+    e.emit("__mod_na:")
+    e.emit("    mv x6, x4")          # |D|
+    e.emit("    srli x6, 15")
+    e.emit("    bz x6, __mod_da")
+    e.emit("    neg x4")
+    e.emit("__mod_da:")
+    e.emit("    la x6, __udivmod")
+    e.emit("    jalr x1, x6")        # x7 = |N| %% |D|
+    e.emit("    mv x6, x7")          # remainder -> x6
+    e.emit("    bz x3, __mod_done")
+    e.emit("    neg x6")
+    e.emit("__mod_done:")
+    e.emit("    pop x3")
+    e.emit("    pop x1")
     e.emit("    ret")

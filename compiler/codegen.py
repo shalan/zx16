@@ -9,10 +9,34 @@ Conventions:
   - Types are tracked enough to choose signed/unsigned compares & shifts, byte vs
     word access, and pointer arithmetic scaling.
 """
+import re
 import codegen_patterns as C
 import zcc
 
 WORD = 2
+
+# Dead-function elimination: when True, only functions reachable via direct calls
+# (transitively from main, plus any named inside a reachable asm() block) are
+# emitted. ZC has no function pointers, so the static call graph is EXACT -- pruning
+# is precise and safe; it just stops unused library functions from bloating the
+# binary. Set False to emit every defined function (e.g. for debugging).
+ELIMINATE_DEAD_FUNCS = True
+
+# When True, putchar/putint compile to the simulator print ECALLs (services 0x001/
+# 0x000). Set False for real-silicon/SoC builds so they resolve to ordinary
+# functions (e.g. the MMIO UART driver in compiler/lib/stdio_si.c) instead.
+INTRINSIC_IO = True
+
+# Per-op AST child fields holding node indices, so the call graph can be walked
+# without re-implementing codegen. single = one index (may be None); list = list.
+_CHILD_SINGLE = {
+    'func':('body',), 'if':('cond','then','els'), 'while':('cond','body'),
+    'return':('val',), 'vardecl':('init',), 'exprstmt':('expr',),
+    'assign':('lhs','rhs'), 'binop':('lhs','rhs'), 'unop':('operand',),
+    'cast':('operand',), 'index':('base','idx'), 'call':('fn',), 'member':('base',),
+}
+_CHILD_LIST = {'block':('stmts',), 'call':('args',)}
+_IDENT_RE = re.compile(r'[A-Za-z_][A-Za-z0-9_]*')
 
 class CodegenError(Exception): pass
 
@@ -54,6 +78,41 @@ class Codegen:
             return 2
         return self.type_size(t)
 
+    # ---------- dead-function elimination ----------
+    def _scan_body(self, idx, calls, asms):
+        """Collect direct-call callee names and asm() texts under node `idx`."""
+        if idx is None: return
+        n=self.P.nodes[idx]; op=n['op']
+        if op=='call':
+            f=self.P.nodes[n['fn']]
+            if f['op']=='ident': calls.add(f['name'])
+        elif op=='asm':
+            asms.append(n['text'])
+        for fld in _CHILD_SINGLE.get(op,()):
+            c=n.get(fld)
+            if c is not None: self._scan_body(c, calls, asms)
+        for fld in _CHILD_LIST.get(op,()):
+            for c in n.get(fld,()):
+                if c is not None: self._scan_body(c, calls, asms)
+
+    def reachable_funcs(self):
+        """Function node-indices reachable from main (+ any named in reachable asm).
+        Falls back to all functions when there is no main (e.g. a library unit)."""
+        by_name={self.P.nodes[i]['name']: i for i in self.P.funcs}
+        if 'main' not in by_name:
+            return set(self.P.funcs)
+        keep=set(); work=['main']
+        while work:
+            fidx=by_name.get(work.pop())
+            if fidx is None or fidx in keep: continue
+            keep.add(fidx)
+            calls=set(); asms=[]
+            self._scan_body(self.P.nodes[fidx]['body'], calls, asms)
+            work.extend(calls)
+            for blob in asms:                       # keep fns named inside this asm
+                work.extend(t for t in _IDENT_RE.findall(blob) if t in by_name)
+        return keep
+
     # ---------- program ----------
     def gen_program(self):
         e=self.e
@@ -63,12 +122,15 @@ class Codegen:
         for (name,ty,arrlen,init) in self.P.globals:
             label=f"g_{name}"
             self.global_syms[name]=(label,ty,arrlen)
-        # functions
+        # functions: register all return types, but emit only those reachable
+        # from main (dead-function elimination -- see reachable_funcs).
         for fidx in self.P.funcs:
             fn=self.P.nodes[fidx]
             self.func_types[fn['name']]=fn['ret']
+        keep = self.reachable_funcs() if ELIMINATE_DEAD_FUNCS else set(self.P.funcs)
         for fidx in self.P.funcs:
-            self.gen_func(fidx)
+            if fidx in keep:
+                self.gen_func(fidx)
         # data section
         e.emit(".data")
         for (name,ty,arrlen,init) in self.P.globals:
@@ -276,15 +338,23 @@ class Codegen:
             if bop=='+': C.bin_op(e,'+',True)
             elif bop=='-': C.bin_op(e,'-',True)
             elif bop=='*': C.bin_op(e,'*',True)
-            elif bop=='/': C.bin_op(e,'/',True)
-            elif bop=='%': C.bin_op(e,'%',True)
+            # '/' and '%' pick signed vs unsigned per C's usual arithmetic
+            # conversions (either operand unsigned/pointer -> unsigned).
+            elif bop=='/': C.div_op(e, unsigned)
+            elif bop=='%': C.mod_op(e, unsigned)
             return lt if not self.is_ptr(rt) else rt
         if bop in ('&','|','^'):
             C.bit_op(e,bop); return lt
         if bop=='<<':
             C.bit_op(e,'<<'); return lt
         if bop=='>>':
-            C.bit_op(e,'>>' if unsigned else '>>s'); return lt
+            # Shift type follows the LEFT operand (the value being shifted), per the
+            # spec: arithmetic for signed, logical for unsigned. The shift COUNT's
+            # signedness is irrelevant -- a signed value >> unsigned count is still an
+            # arithmetic shift. (Folding rt's signedness in here made `(signed) >>
+            # (unsigned)` wrongly logical.)
+            sh_unsigned = self.is_unsigned(lt) or self.is_ptr(lt)
+            C.bit_op(e,'>>' if sh_unsigned else '>>s'); return lt
         if bop in ('<','>','<=','>='):
             if unsigned: C.cmp_unsigned(e,bop)
             else: C.bin_op(e,bop,True)
@@ -319,10 +389,10 @@ class Codegen:
         if fnode['op']!='ident': raise CodegenError("only direct calls supported")
         fname=fnode['name']
         # intrinsics: putint(x) -> ecall 0x000 ; putchar(c) -> ecall 0x001
-        if fname=='putint' and len(n['args'])==1:
+        if INTRINSIC_IO and fname=='putint' and len(n['args'])==1:
             self.gen_expr(n['args'][0]); e.emit("    ecall 0x000")
             return {'base':'int','ptr':0}
-        if fname=='putchar' and len(n['args'])==1:
+        if INTRINSIC_IO and fname=='putchar' and len(n['args'])==1:
             self.gen_expr(n['args'][0]); e.emit("    ecall 0x001")
             return {'base':'int','ptr':0}
         # push args right-to-left
@@ -433,8 +503,8 @@ class Codegen:
         return ft
 
 
-def compile_src(src):
-    p=zcc.parse(src)
+def compile_src(src, base_dir='.'):
+    p=zcc.parse(src, base_dir)
     return Codegen(p).gen_program()
 
 

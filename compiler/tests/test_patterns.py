@@ -34,10 +34,10 @@ def t_divmod():
     e = C.Emitter(); C.crt0(e); C.runtime(e)
     C.func_prologue(e, "main", 0)
     C.load_const(e, 23); C.push_x6(e); C.load_const(e, 4)
-    C.pop_to(e, "x5"); C.bin_op(e, '/', True)        # 5
+    C.pop_to(e, "x5"); C.div_op(e, False)            # 5
     e.emit("    ecall 0x000")
     C.load_const(e, 23); C.push_x6(e); C.load_const(e, 4)
-    C.pop_to(e, "x5"); C.bin_op(e, '%', True)        # 3
+    C.pop_to(e, "x5"); C.mod_op(e, False)            # 3
     e.emit("    ecall 0x000"); C.func_epilogue(e)
     assert run(e.text()) == [('int', 5), ('int', 3)]
 
@@ -178,7 +178,7 @@ def t_continue():
     def body(e):
         C.load_local(e,1); C.push_x6(e); C.load_const(e,1); C.pop_to(e,"x5"); C.bin_op(e,'+',True); C.store_local(e,1)
         def c(e):
-            C.load_local(e,1); C.push_x6(e); C.load_const(e,2); C.pop_to(e,"x5"); C.bin_op(e,'%',True)
+            C.load_local(e,1); C.push_x6(e); C.load_const(e,2); C.pop_to(e,"x5"); C.mod_op(e,False)
             C.push_x6(e); C.load_const(e,0); C.pop_to(e,"x5"); C.bin_op(e,'==',True)
         C.if_then_else(e, c, lambda e: C.emit_continue(e), None)
         C.load_local(e,0); C.push_x6(e); C.load_const(e,1); C.pop_to(e,"x5"); C.bin_op(e,'+',True); C.store_local(e,0)
