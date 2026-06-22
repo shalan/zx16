@@ -58,9 +58,20 @@ hardware.
 | `DI`     | `100` | `0x0027` | `IE←0` |
 | `MFEPC rd` | `101` | `(rd<<6)\|0x2F` | `rd ← EPC` |
 | `MTEPC rd` | `110` | `(rd<<6)\|0x37` | `EPC ← rd` |
+| `STEP`     | `111` | `0x003F`        | request single-step (armed by the next `RETI`) |
 
 `ECALL` keeps its environment-service role (so the toolchain/`stdio_sim` are unchanged);
 `EBREAK` is the in-memory vectoring trap used for breakpoints.
+
+## Single-step
+
+`STEP` sets a step request; it does **not** take effect immediately. The next `RETI`
+*arms* it, so the CPU executes **exactly one** instruction back in the debuggee and then
+traps to vector 1 — with `EPC` set to the following instruction (the resume point, not
+re-execute). A debug handler therefore steps the debuggee one instruction at a time with
+`... STEP ; RETI` and regains control after each one. (`EBREAK` and a hardware IRQ both
+trap *before* their instruction and re-run it; `STEP` traps *after* and advances.)
+A hardware interrupt is not taken while a step is in flight.
 
 ## Example (continue past an EBREAK)
 
