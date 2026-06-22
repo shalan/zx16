@@ -34,6 +34,7 @@ module zx16_top #(
 
     zx16_core #(.RESET_PC(RESET_PC)) core(
         .clk(clk), .rst(rst),
+        .irq_req(1'b0), .irq_num(4'd0),   // no interrupt controller in this minimal top
         .iaddr(iaddr), .idata(idata),
         .daddr(daddr), .drdata(drdata), .drbyte(drbyte),
         .dwe(dwe), .dword(dword), .dwdata(dwdata), .dre(dre),
