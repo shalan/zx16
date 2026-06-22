@@ -68,6 +68,8 @@ module zx16_core_ahb #(
     reg        halt_r;
     reg [15:0] epc;        // saved PC for RETI (return from interrupt/trap)
     reg        ie;         // global interrupt enable
+    reg        step_req;   // STEP requested (armed by the next RETI)
+    reg        step_armed; // single-step active: trap after one instruction
     reg [15:0] regs [0:7];
     integer i;
     // ---- registered data-bus request (address phase + data phase) ----
@@ -151,7 +153,8 @@ module zx16_core_ahb #(
     wire is_di     = is_sys && (func3==3'd4);
     wire is_mfepc  = is_sys && (func3==3'd5);
     wire is_mtepc  = is_sys && (func3==3'd6);
-    wire take_irq  = ie && irq_req;                // gated by exec_avail in the sequencer
+    wire is_step   = is_sys && (func3==3'd7);
+    wire take_irq  = ie && irq_req && ~step_armed; // gated by exec_avail; not mid-single-step
     wire [15:0] vec_irq = {11'b0, irq_num, 1'b0};  // irq_num * 2
     wire [15:0] pc_plus2 = pcE + 16'd2;
 
@@ -239,6 +242,7 @@ module zx16_core_ahb #(
         if (!HRESETn) begin
             pcF <= RESET_PC; pcE <= 16'd0; validE <= 1'b0; halt_r <= 1'b0;
             d_req <= 1'b0; memph <= 1'b0; ie <= 1'b0; epc <= 16'd0;
+            step_req <= 1'b0; step_armed <= 1'b0;
             // d_addr_r/d_write_r/d_size_r/d_wdata_r/d_load_r/d_rd_r/d_func3_r are
             // write-before-read (loaded in EXECUTE, consumed only in the later address/
             // data phases, which cannot occur until after they are loaded). They are
@@ -253,8 +257,11 @@ module zx16_core_ahb #(
             if (D_HREADY) begin
                 if (d_load_r) regs[d_rd_r] <= load_data;
                 memph  <= 1'b0;
-                pcF    <= pcE + 16'd2;   // refetch the instruction after the mem op
                 validE <= 1'b0;          // refill bubble
+                if (step_armed) begin    // the stepped instruction was a load/store
+                    pcF <= 16'h0002; epc <= pcE + 16'd2; ie <= 1'b0; step_armed <= 1'b0;
+                end else
+                    pcF <= pcE + 16'd2;  // refetch the instruction after the mem op
             end
         end else if (d_req) begin
             // ---- address phase (registered outputs) ----
@@ -278,12 +285,18 @@ module zx16_core_ahb #(
                 end else begin
                     if (wr_en) regs[wr_addr] <= wb_data;
                     if      (is_ebreak) begin epc <= pcE; ie <= 1'b0; end
-                    else if (is_reti)   ie  <= 1'b1;
+                    else if (is_reti)   begin ie <= 1'b1;
+                                              if (step_req) begin step_armed <= 1'b1; step_req <= 1'b0; end end
                     else if (is_ei)     ie  <= 1'b1;
                     else if (is_di)     ie  <= 1'b0;
                     else if (is_mtepc)  epc <= regs[a_field];
+                    else if (is_step)   step_req <= 1'b1;
                     if (is_ecall && svc==10'h3FF) halt_r <= 1'b1;
-                    if (redirect) begin
+                    if (step_armed) begin     // single-step: this instr committed -> trap to vec 1
+                        pcF <= 16'h0002; validE <= 1'b0;
+                        epc <= redirect ? target : pcF;   // resume point after the stepped instr
+                        ie  <= 1'b0; step_armed <= 1'b0;
+                    end else if (redirect) begin
                         pcF <= target; validE <= 1'b0;
                     end else begin
                         pcE <= pcF; pcF <= pcF + 16'd2; validE <= 1'b1;

@@ -58,6 +58,7 @@ with `codegen.INTRINSIC_IO = False` and include `stdio_si.c`, which implements
 ## Debug monitor (`fw/monitor.c`)
 
 A UART monitor that runs on the SoC and lets a host poke the system over serial.
+**Full usage guide: [MONITOR.md](MONITOR.md).**
 Commands take hex args, whitespace/newline separated:
 
 | cmd | action |

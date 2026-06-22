@@ -1,15 +1,12 @@
 #!/usr/bin/env python3
-"""Differential check of the interrupt/trap + single-step mechanism on the single-cycle
-RTL core vs. the golden sim. Two programs:
-  (1) EBREAK -> vector handler adjusts EPC past the ebreak (MFEPC/ADDI/MTEPC) -> RETI.
-  (2) single-step: a debug ISR steps the debuggee one instruction at a time (a0 0->1->2->3),
-      then continues.
-Both run on the RTL core (via tb_zx16) and the sim; their ECALL output must match.
-(Hardware-IRQ entry is verified in the sim and exercised in RTL by the SoC IRQ test.)"""
+"""Differential check of the trap + single-step mechanism on the 2-stage AHB-Lite core
+vs. the golden sim, at zero and two wait states (the pipeline + registered D-bus make
+the trap/step paths interact with HREADY stalls). Programs: EBREAK round-trip, and a
+debug ISR single-stepping the debuggee one instruction at a time."""
 import os, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-import verify as V                              # noqa: E402
+import verify_ahb as VA                         # noqa: E402
 
 EBREAK_PROG = """
 .text
@@ -61,15 +58,17 @@ isr_go:
     reti
 """
 
-vvp = V.build_rtl()
+vvp = VA.build()
 npass = ntot = 0
 for label, prog, want_vals in [("EBREAK round-trip", EBREAK_PROG, [100, 150, 200]),
                                ("single-step a0 0->1->2->3", STEP_PROG, [0, 1, 2, 3, 3])]:
-    want = V.sim_output(prog)
-    got = V.rtl_output(vvp, V.mem_image(prog))
-    ok = (got == want) and ([v for _, v in got] == want_vals)
-    ntot += 1; npass += ok
-    print(f"{'PASS' if ok else 'FAIL'}  {label:<26} rtl={[v for _,v in got]} sim={[v for _,v in want]}")
+    want = VA.sim_output(prog)
+    mem = VA.mem_image(prog)
+    for ws in (0, 2):
+        got = VA.rtl_output(vvp, mem, ws=ws)
+        ok = (got == want) and ([v for _, v in got] == want_vals)
+        ntot += 1; npass += ok
+        print(f"{'PASS' if ok else 'FAIL'}  {label:<26} ws={ws}  rtl={[v for _,v in got]}")
 
-print(f"\n{npass}/{ntot} single-cycle RTL trap/step checks match the sim")
+print(f"\n{npass}/{ntot} AHB-core trap/step checks match the sim (ws 0 & 2)")
 sys.exit(0 if npass == ntot else 1)

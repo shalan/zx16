@@ -52,6 +52,8 @@ module zx16_core #(
     reg [15:0] pc;
     reg [15:0] epc;       // saved PC for RETI (return from interrupt/trap)
     reg        ie;        // global interrupt enable
+    reg        step_req;  // STEP requested (armed by the next RETI)
+    reg        step_armed; // single-step active: trap after one instruction
     reg        halt_r;
     reg [15:0] regs [0:7];
 
@@ -130,7 +132,9 @@ module zx16_core #(
     wire is_di     = is_sys && (func3==3'd4);
     wire is_mfepc  = is_sys && (func3==3'd5);
     wire is_mtepc  = is_sys && (func3==3'd6);
-    wire take_irq  = ie && irq_req && ~halt_r;        // HW interrupt at instr boundary
+    wire is_step   = is_sys && (func3==3'd7);
+    wire take_irq  = ie && irq_req && ~halt_r && ~step_armed;  // don't preempt a single-step
+    wire step_trap = step_armed && ~halt_r;                    // trap after the stepped instr
     wire [15:0] vec_irq = {11'b0, irq_num, 1'b0};     // irq_num * 2
 
     // ---- data memory interface (suppressed when servicing an interrupt) ----
@@ -182,9 +186,9 @@ module zx16_core #(
         endcase
     end
 
-    // ---- next PC (interrupt/trap redirects take priority) ----
-    wire [15:0] next_pc =
-        take_irq                       ? vec_irq :        // HW interrupt -> vector
+    // ---- next PC ----
+    // sequential result (branch/jump/EBREAK/RETI/+2), before async trap redirects
+    wire [15:0] npc_seq =
         is_ebreak                      ? 16'h0002 :       // EBREAK -> vector 1
         is_reti                        ? epc :            // RETI -> EPC
         (opcode==OP_B && branch_taken) ? (pc_plus2 + off_b) :
@@ -192,6 +196,10 @@ module zx16_core #(
         is_jr                          ? ra :   // JR  : PC <- reg[8:6]
         is_jalr                        ? rb :   // JALR: PC <- reg[11:9]
                                          pc_plus2;
+    wire [15:0] next_pc =
+        take_irq  ? vec_irq :        // HW interrupt -> vector
+        step_trap ? 16'h0002 :       // single-step -> vector 1 (after one instruction)
+                    npc_seq;
 
     // ---- ecall (only real ECALL, not the new SYS sub-ops, and not during a trap) ----
     assign ecall_valid = is_ecall && ~halt_r && ~take_irq;
@@ -204,6 +212,8 @@ module zx16_core #(
             pc     <= RESET_PC;
             epc    <= 16'd0;
             ie     <= 1'b0;
+            step_req   <= 1'b0;
+            step_armed <= 1'b0;
             halt_r <= 1'b0;
             for (i=0;i<8;i=i+1) regs[i] <= 16'd0;
             regs[2] <= 16'hF000;          // SP
@@ -215,11 +225,15 @@ module zx16_core #(
             end else begin
                 if (wr_en) regs[wr_addr] <= wb_data;
                 if      (is_ebreak) begin epc <= pc; ie <= 1'b0; end
-                else if (is_reti)   ie  <= 1'b1;
+                else if (is_reti)   begin ie <= 1'b1;
+                                          if (step_req) begin step_armed <= 1'b1; step_req <= 1'b0; end end
                 else if (is_ei)     ie  <= 1'b1;
                 else if (is_di)     ie  <= 1'b0;
                 else if (is_mtepc)  epc <= regs[a_field];
+                else if (is_step)   step_req <= 1'b1;
                 if (is_ecall && svc==10'h3FF) halt_r <= 1'b1;
+                // single-step: the stepped instruction commits above; trap right after it
+                if (step_trap) begin epc <= npc_seq; ie <= 1'b0; step_armed <= 1'b0; end
             end
         end
     end
