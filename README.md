@@ -541,3 +541,31 @@ ADD x0, x0         # x0 = x0 + x0; result discarded into x0, no architectural ef
 
 ## Contribution
 Please refer to the contribution guide [here](docs/contribute.md).
+
+---
+
+## Machines (su26 / su26-ext)
+
+Educational and extended SoC **machine profiles** live under [`machines/`](machines/).
+Each machine defines reset state, memory map, MMIO, ecalls, an ISS, and a zx16cc port.
+
+| Machine | Description |
+|---------|-------------|
+| **`su26`** | CSCE 2303 Summer 2026 platform (handout): SP=`0xEFFE`, tile VRAM, course ecalls |
+| **`su26-ext`** | `su26` + **UART** (`0xC000`) + **timer** (`0xD000`) + **enhanced 2D GFX** (32 tiles, ATTR, 4× RGB565 banks, 8 sprites, vblank/scroll) |
+
+```bash
+# Compile + run (from repo root)
+python3 -m machines.zx16cc  --machine su26   machines/su26/cc/examples/hello.c -o /tmp/hello
+python3 -m machines.zx16sim --machine su26 /tmp/hello.bin
+
+python3 -m machines.zx16cc  --machine su26-ext   machines/su26_ext/cc/examples/uart_hello.c -o /tmp/uh
+python3 -m machines.zx16sim --machine su26-ext /tmp/uh.bin
+
+# Browser debugger (framebuffer + tile/tilemap/palette viewers)
+python3 -m machines.zx16sim --machine su26-ext /tmp/uh.bin --gui
+# → http://127.0.0.1:8765/
+```
+
+See [`machines/README.md`](machines/README.md) and [`machines/docs/SU26_EXT_GFX.md`](machines/docs/SU26_EXT_GFX.md).
+The existing `compiler/` ISS remains the golden toolchain simulator; `machines/` is additive.

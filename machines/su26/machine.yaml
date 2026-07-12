@@ -1,0 +1,68 @@
+# ZX16 machine: su26
+# CSCE 2303 Summer 2026 educational platform (zx16-sim-su26.pdf)
+name: su26
+parent: null
+description: >
+  Course handout machine — tiled graphics, ecall I/O (no silicon UART/timer MMIO),
+  SP below VRAM, program entry at 0x0020.
+
+reset:
+  pc: 0x0020
+  sp: 0xEFFE
+  gprs: 0          # all other GPRs zero
+  prng_seed: 0xACE1
+
+memory_map:
+  - { range: [0x0000, 0x001F], role: reserved, note: "IVT unused; leave clear" }
+  - { range: [0x0020, 0xEFFD], role: ram, note: "code/data/heap" }
+  - { range: [0xEFFE, 0xEFFE], role: stack_top, note: "SP reset; grows down" }
+  - { range: [0xF000, 0xF1FF], role: tile_map, size: 300 }
+  - { range: [0xF200, 0xF9FF], role: tile_defs, size: 2048 }
+  - { range: [0xFA00, 0xFA0F], role: palette, size: 16, format: RGB332 }
+  - { range: [0xFA10, 0xFFFF], role: reserved_mmio, note: "inert" }
+
+graphics:
+  width: 320
+  height: 240
+  tile: 16
+  map_cols: 20
+  map_rows: 15
+  bpp: 4
+  nibble_order: even_low_odd_high
+  palette_expand: bit_replicate
+
+# ECALL: service number in instruction bits [15:6]
+ecalls:
+  # --- golden (must match reference semantics) ---
+  0x000: { name: print_int, in: [a0], note: "signed decimal" }
+  0x001: { name: print_char, in: [a0], note: "low byte ASCII" }
+  0x3FF: { name: halt }
+  # --- course extensions ---
+  0x010: { name: read_string, in: [a0, a1], out: [a0] }
+  0x011: { name: read_int, out: [a0] }
+  0x012: { name: print_string, in: [a0] }
+  0x020: { name: play_tone, in: [a0, a1], note: "Hz, ms" }
+  0x021: { name: set_volume, in: [a0] }
+  0x022: { name: stop_audio }
+  0x030: { name: read_keyboard, out: [a0, a1], note: "code, pressed" }
+  0x031: { name: seed_rng, in: [a0] }
+  0x032: { name: random, out: [a0], note: "16-bit xorshift" }
+  0x040: { name: regs_dump }
+  0x041: { name: mem_dump, in: [a0, a1] }
+
+prng:
+  algorithm: xorshift16
+  steps: ["S ^= S<<7", "S ^= S>>9", "S ^= S<<8"]
+  default_seed: 0xACE1
+  zero_seed_maps_to: 0xACE1
+
+compiler:
+  port: su26
+  crt0_sp: 0xEFFE
+  entry: 0x0020
+  intrinsic_io: ecall    # putchar/putint → 0x001/0x000
+  lib: [stdio_ecall.c, su26.h]
+
+simulator:
+  module: machines.su26.simulator.sim
+  class: Su26Sim

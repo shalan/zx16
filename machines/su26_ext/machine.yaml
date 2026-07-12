@@ -1,0 +1,97 @@
+# ZX16 machine: su26-ext
+# Parent su26 + UART + timer + enhanced 2D graphics
+name: su26-ext
+parent: su26
+description: >
+  Su26 educational base plus UART (0xC000), timer (0xD000), and enhanced
+  tile graphics: 32 tiles (4bpp), ATTR map, 4× RGB565 palette banks,
+  8 sprites, GFXCTRL (vblank/scroll/frame). See docs/SU26_EXT_GFX.md.
+
+reset:
+  pc: 0x0020
+  sp: 0xEFFE
+  gprs: 0
+  prng_seed: 0xACE1
+
+memory_map:
+  - { range: [0xC000, 0xC1FF], role: mmio_uart, device: uart0 }
+  - { range: [0xD000, 0xD1FF], role: mmio_timer, device: timer0 }
+  - { range: [0xE000, 0xE03F], role: mmio_gfxctrl, device: gfx0 }
+  - { range: [0xE040, 0xE07F], role: oam, note: "8 sprites × 8 bytes" }
+  - { range: [0xE100, 0xE2FF], role: attr_map, size: 300 }
+  - { range: [0xE800, 0xEFFF], role: tile_data_hi, note: "tiles 16–31, 2KB" }
+  - { range: [0xF000, 0xF1FF], role: tile_map, size: 300 }
+  - { range: [0xF200, 0xF9FF], role: tile_data_lo, note: "tiles 0–15, 2KB" }
+  - { range: [0xFA00, 0xFA7F], role: palette, note: "4 banks × 16 × RGB565" }
+  - { range: [0xFA80, 0xFFFF], role: reserved_mmio }
+
+graphics:
+  width: 320
+  height: 240
+  tile: 16
+  map_cols: 20
+  map_rows: 15
+  num_tiles: 32
+  bpp: 4
+  nibble_order: even_low_odd_high
+  palette: { format: RGB565, banks: 4, entries_per_bank: 16 }
+  attr_map: true
+  sprites: 8
+  scroll: pixel
+  vblank: true
+  doc: docs/SU26_EXT_GFX.md
+
+devices:
+  uart0:
+    type: uart
+    base: 0xC000
+    regs:
+      CR:  { offset: 0x000 }
+      SR:  { offset: 0x004 }
+      DR:  { offset: 0x008 }
+      BRR: { offset: 0x100 }
+
+  timer0:
+    type: timer
+    base: 0xD000
+    regs:
+      CR:  { offset: 0x000 }
+      RIS: { offset: 0x024 }
+      ICR: { offset: 0x02C }
+      CNT: { offset: 0x100 }
+      PSC: { offset: 0x104 }
+      ARR: { offset: 0x108 }
+
+  gfx0:
+    type: gfxctrl
+    base: 0xE000
+    regs:
+      CTRL:      { offset: 0x00, bits: { EN: 0, BLANK: 1, SPR_EN: 2 } }
+      STATUS:    { offset: 0x04, bits: { VBLANK: 0 } }
+      FRAME:     { offset: 0x08 }
+      SCROLL_X:  { offset: 0x0C }
+      SCROLL_Y:  { offset: 0x10 }
+      BG_COLOR:  { offset: 0x14 }
+      FRAME_DIV: { offset: 0x18 }
+
+ecalls_extra:
+  0x050: { name: timer_millis, out: [a0] }
+  0x051: { name: timer_set_match, in: [a0] }
+  0x052: { name: timer_wait_uif }
+  0x060: { name: uart_putc, in: [a0] }
+  0x061: { name: uart_getc, out: [a0] }
+  0x062: { name: uart_haschar, out: [a0] }
+  0x070: { name: gfx_wait_vblank }
+  0x071: { name: gfx_get_frame, out: [a0] }
+  0x072: { name: gfx_set_scroll, in: [a0, a1] }
+
+compiler:
+  port: su26-ext
+  crt0_sp: 0xEFFE
+  entry: 0x0020
+  intrinsic_io: ecall_or_uart
+  lib: [stdio_uart.c, timer.c, gfx.h, su26_ext.h]
+
+simulator:
+  module: machines.su26_ext.simulator.sim
+  class: Su26ExtSim
