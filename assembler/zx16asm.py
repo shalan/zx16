@@ -98,9 +98,16 @@ class InstructionFormat(Enum):
 
 class ZX16Lexer:
     """Lexical analyzer for ZX16 assembly language."""
-    
+
+    # Sets, not strings: `'' in "0123456789abcdef"` is True, so a string
+    # membership test never terminates once current_char() hits end of input.
+    HEX_DIGITS = frozenset('0123456789abcdef')
+    BIN_DIGITS = frozenset('01')
+    OCT_DIGITS = frozenset('01234567')
+
     def __init__(self, text: str, filename: str = "<input>"):
-        self.text = text
+        # The scanners rely on a terminator after each token, so guarantee one.
+        self.text = text if text.endswith('\n') else text + '\n'
         self.filename = filename
         self.pos = 0
         self.line = 1
@@ -167,19 +174,19 @@ class ZX16Lexer:
             if self.current_char().lower() == 'x':
                 # Hexadecimal
                 self.advance()
-                while self.current_char().lower() in '0123456789abcdef':
+                while self.current_char().lower() in self.HEX_DIGITS:
                     self.advance()
                 return int(self.text[start_pos:self.pos], 16)
             elif self.current_char().lower() == 'b':
                 # Binary
                 self.advance()
-                while self.current_char() in '01':
+                while self.current_char() in self.BIN_DIGITS:
                     self.advance()
                 return int(self.text[start_pos:self.pos], 2)
             elif self.current_char().lower() == 'o':
                 # Octal
                 self.advance()
-                while self.current_char() in '01234567':
+                while self.current_char() in self.OCT_DIGITS:
                     self.advance()
                 return int(self.text[start_pos:self.pos], 8)
             else:
