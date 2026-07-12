@@ -9,10 +9,16 @@ Everything generated in this conversation, grouped by purpose.
 ├── README.md    ZX16 ISA specification
 ├── MANIFEST.md
 ├── assembler/   zx16asm.py
-├── simulator/   zx16sim.py
+├── simulator/   zx16sim.py (golden / toolchain ISS; optional path)
 ├── compiler/    zcc.py, codegen.py, codegen_patterns.py
 │   ├── examples/   01_gpio_set.c .. 07_tea.c
 │   └── tests/      test_patterns.py, test_compile.py, test_embedded.py
+├── machines/    machine profiles (su26, su26-ext) + multi-machine ISS/cc
+│   ├── zx16sim.py / zx16cc.py / registry.py / gui_debug.py
+│   ├── common/  shared ISA core + disasm
+│   ├── su26/    course educational machine
+│   ├── su26_ext/ UART + timer + enhanced 2D GFX
+│   └── docs/    SU26_EXT_GFX.md, ZX16_DEBUG_ANNEX.md
 └── docs/        SPEC.md (ZC language spec)
 ```
 
@@ -93,3 +99,12 @@ self-hosting-grade feature set, far-call/far-jump for large programs.
 Verified by execution: 28 test programs + 5 embedded examples + matmul + TEA.
 Not done: the actual self-host (compiler is written in Python, not yet in ZC);
 MD5 and FFT stress tests (now unblocked).
+
+## Machines package
+
+- **machines/** — multi-machine ZX16 profiles for course/SoC work.
+  - **su26** — Su26 educational ISS (handout SP/`ecall`/VRAM).
+  - **su26-ext** — UART @0xC000, timer @0xD000, enhanced GFX (32 tiles, ATTR, RGB565 banks, sprites, scroll/vblank).
+  - **python3 -m machines.zx16sim** / **zx16cc** — machine-aware CLI entry points.
+  - **gui_debug.py** — browser debugger (display + tile/tilemap/palette viewers).
+  - Docs: `machines/docs/SU26_EXT_GFX.md`, `machines/docs/ZX16_DEBUG_ANNEX.md`.
