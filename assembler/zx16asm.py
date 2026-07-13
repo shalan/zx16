@@ -1161,7 +1161,7 @@ class ZX16Assembler:
             
             # Calculate relative offset
             offset = target - (self.current_address + 2)
-            if offset < -32 or offset > 28 or offset % 2 != 0:
+            if offset < -16 or offset > 14 or offset % 2 != 0:
                 raise SyntaxError(f"Branch offset out of range or not word-aligned: {offset}")
             
             imm_high = (offset >> 1) & 0xF
