@@ -11,13 +11,16 @@
 //     link -> reg[8:6].
 //   * J/JAL offset = sext({imm[9:4],imm[3:1],0})  (range -512..+510).
 //   * LUI/AUIPC immediate = imm9 << 7.
-//   * Reset: PC = RESET_PC (0x0020, the toolchain entry convention), SP(x2)=0xF000.
+//   * Reset: PC = RESET_PC (default 0x0020, toolchain entry; arch reset is 0x0000).
+//     SP(x2) = RESET_SP (default 0xF000 for the lab 64 KB RAM profile; SoC/v2
+//     maps pass a different top-of-RAM value — see rtl/README.md).
 //   * SYS sub-ops (func3 = inst[5:3]); see docs/INTERRUPTS.md:
 //       0 ECALL (svc 0x3FF halts; svc/a0 exposed), 1 EBREAK, 2 RETI, 3 EI, 4 DI,
 //       5 MFEPC rd, 6 MTEPC rd.  Trap: EPC<-PC, IE<-0, PC<-vector (J-table, entry i*2).
 //       EBREAK -> vector 1 (0x0002); a hardware irq_req (when IE) -> vector irq_num.
 module zx16_core #(
-    parameter RESET_PC = 16'h0020
+    parameter RESET_PC = 16'h0020,
+    parameter RESET_SP = 16'hF000   // one word past top of stack RAM (profile-specific)
 )(
     input             clk,
     input             rst,
@@ -216,7 +219,7 @@ module zx16_core #(
             step_armed <= 1'b0;
             halt_r <= 1'b0;
             for (i=0;i<8;i=i+1) regs[i] <= 16'd0;
-            regs[2] <= 16'hF000;          // SP
+            regs[2] <= RESET_SP;          // SP (x2)
         end else if (!halt_r) begin
             pc <= next_pc;
             if (take_irq) begin

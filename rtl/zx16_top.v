@@ -5,7 +5,8 @@
 // All other addresses (incl. other MMIO like 0xF010/0xF030) are plain RAM, so
 // read-modify-write peripherals (GPIO, timer reg-map) behave as the sim expects.
 module zx16_top #(
-    parameter RESET_PC = 16'h0020
+    parameter RESET_PC = 16'h0020,
+    parameter RESET_SP = 16'hF000   // lab 64 KB RAM profile (see rtl/README.md)
 )(
     input         clk,
     input         rst,
@@ -32,7 +33,7 @@ module zx16_top #(
         else if (dre && sel_status)  status_reads <= status_reads + 4'd1;
     end
 
-    zx16_core #(.RESET_PC(RESET_PC)) core(
+    zx16_core #(.RESET_PC(RESET_PC), .RESET_SP(RESET_SP)) core(
         .clk(clk), .rst(rst),
         .irq_req(1'b0), .irq_num(4'd0),   // no interrupt controller in this minimal top
         .iaddr(iaddr), .idata(idata),

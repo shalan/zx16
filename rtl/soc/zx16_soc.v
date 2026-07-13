@@ -14,7 +14,10 @@
 //============================================================================
 module zx16_soc #(
     parameter [15:0] RESET_PC = 16'h0020,
-    parameter integer RAM_AW  = 16            // 64 KB SRAM (0x0000-0xBFFF used)
+    // One word past top of on-chip RAM (0x0000–0xBFFF); first PUSH -> 0xBFFE.
+    // Keeps the stack out of the APB window at 0xC000+ (see docs/MEMORY_MAP.md).
+    parameter [15:0] RESET_SP = 16'hC000,
+    parameter integer RAM_AW  = 16            // 64 KB array; 0x0000-0xBFFF used as RAM
 ) (
     input  wire clk,
     input  wire rst_n,
@@ -42,7 +45,7 @@ module zx16_soc #(
     wire        soc_irq_req = tmr_irq | uart_irq;
     wire [3:0]  soc_irq_num = tmr_irq ? 4'd2 : 4'd3;
 
-    zx16_core_ahb #(.RESET_PC(RESET_PC)) cpu (
+    zx16_core_ahb #(.RESET_PC(RESET_PC), .RESET_SP(RESET_SP)) cpu (
         .HCLK(clk), .HRESETn(rst_n),
         .irq_req(soc_irq_req), .irq_num(soc_irq_num),
         .I_HADDR(iI_haddr), .I_HTRANS(iI_htrans), .I_HWRITE(iI_hwrite),

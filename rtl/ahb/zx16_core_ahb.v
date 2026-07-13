@@ -17,9 +17,10 @@
 //
 // Hazard policy (simple, no forwarding): taken branch/jump = 1-cycle flush;
 // loads/stores serialize; HREADY low = freeze. Reuses zx16_alu.v. ECALL: svc 0x3FF
-// halts; svc/a0 exposed. Reset PC=RESET_PC, SP(x2)=0xF000.
+// halts; svc/a0 exposed. Reset PC=RESET_PC, SP(x2)=RESET_SP (profile-specific).
 module zx16_core_ahb #(
-    parameter RESET_PC = 16'h0020
+    parameter RESET_PC = 16'h0020,
+    parameter RESET_SP = 16'hF000   // lab default; SoC overrides to 0xC000
 )(
     input             HCLK,
     input             HRESETn,
@@ -249,7 +250,7 @@ module zx16_core_ahb #(
             // intentionally NOT reset so they infer enable flip-flops (edfxtp) -- this
             // keeps the conditional-load mux off the address-adder critical path.
             for (i=0;i<8;i=i+1) regs[i] <= 16'd0;
-            regs[2] <= 16'hF000;
+            regs[2] <= RESET_SP;
         end else if (halt_r) begin
             // frozen
         end else if (memph) begin

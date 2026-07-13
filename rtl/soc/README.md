@@ -23,10 +23,16 @@ The ZX16 is 16-bit, so it reaches the 32-bit system through a fixed window
 
 | ZX16 address | System / fabric | What |
 |---|---|---|
-| `0x0000–0xBFFF` | `0x0000_0000–0x0000_BFFF` | on-chip RAM (48 KB; SP starts at `0xC000`) |
+| `0x0000–0xBFFF` | `0x0000_0000–0x0000_BFFF` | on-chip RAM (48 KB) |
 | `0xC000–0xCFFF` | `0x4000_0000` (APB slot 0) | `nc_uart`  (CR `0xC000`, SR `0xC004`, DR `0xC008`) |
 | `0xD000–0xDFFF` | `0x4000_1000` (APB slot 1) | `nc_tmr`   (CR `0xD000`, CNT `0xD100`, ARR `0xD108`) |
 | `0xE000–0xFFFF` | `0x4000_2000–0x4000_3FFF` | APB slots 2–3 (free) |
+
+**Reset SP:** `zx16_soc` passes `RESET_SP=0xC000` into the core (first `PUSH` →
+`0xBFFE`), so the stack stays below the APB window even before crt0 runs.
+Firmware may still set SP explicitly (`0xBFFE`). See [docs/MEMORY_MAP.md](../../docs/MEMORY_MAP.md)
+and the profile table in [rtl/README.md](../README.md): this SoC’s `0x8000–0xBFFF`
+is **RAM**, not the optional ISA page window.
 
 The window is 16 KB, so the ZX16 reaches APB slots 0–3. A 16-bit store writes the
 **low 16 bits** of a 32-bit APB register (the upper half is zeroed by the adapter);

@@ -32,7 +32,8 @@ Expected: **9/9 match** at both `ws=0` and `ws=2`, including MD5 and an 8-point 
   with byte-lane select on `HADDR[0]`; `HBURST`=SINGLE; `HTRANS` IDLE/NONSEQ; `HRESETn`
   async active-low.
 - **ECALL** = halt + debug ports (`svc 0x3FF` halts; `0x000`/`0x001` print). Reset
-  PC=`0x0020`, SP=`0xF000`.
+  PC=`RESET_PC` (default `0x0020`), SP=`RESET_SP` (default `0xF000` lab;
+  SoC overrides to `0xC000` — see `rtl/README.md` profiles).
 
 ## Notes
 - The single-cycle core in `../` remains as the simple reference; this is the SoC-ready one.
