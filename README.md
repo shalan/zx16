@@ -4,12 +4,12 @@
 The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for simplicity, efficiency, and educational use. It features:
 - **16-bit fixed-width** instructions and data  
 - **8 general-purpose registers** (x0–x7) plus a 16-bit PC  
-- **64 KB flat address space** for code, data, MMIO, and interrupt vectors  
+- **64 KB flat address space** for code, data, optional paged external memory, MMIO/VRAM, and interrupt vectors  
 - **8 instruction formats** selected by bits [2:0]  
 - **50+ real & pseudo-instructions** covering ALU, branches, loads/stores, jumps, upper-immediates, and syscalls  
 - **Smart immediates**: large constants are synthesized via pseudo-ops; per-instruction immediates use their field's natural width (I-type arithmetic sign-extends, LUI/AUIPC fill the upper bits)  
 - **PC-relative control flow**: all branches, J and JAL use PC-relative offsets  
-- **Memory-mapped I/O** at 0xF000–0xFFFF  
+- **Memory-mapped I/O and VRAM** reserved at 0xC000–0xFFFF (see [docs/MEMORY_MAP.md](docs/MEMORY_MAP.md))  
 - **16 interrupt vectors** at 0x0000–0x001F (2 bytes each; reset at 0x0000)
 
 ---
@@ -33,7 +33,7 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 |:--------:|:---:|:-----------------------:|:----------------------------|
 | x0       | t0  | Temporary               | Caller-saved scratch/Assembler Temporary        |
 | x1       | ra  | Return address          | Used by JAL/JALR            |
-| x2       | sp  | Stack pointer           | Initialized to 0xF000       |
+| x2       | sp  | Stack pointer           | Top of general RAM (see memory map) |
 | x3       | s0  | Saved / Frame pointer   | Callee-saved                |
 | x4       | s1  | Saved                   | Callee-saved                |
 | x5       | t1  | Temporary               | Caller-saved scratch        |
@@ -45,14 +45,14 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 
 ### Reset Behavior
 - **PC**: Initialized to 0x0000 on reset
-- **x2 (sp)**: Initialized to 0xF000 on reset
+- **x2 (sp)**: Initialized to the top of implemented general memory on reset (see [docs/MEMORY_MAP.md](docs/MEMORY_MAP.md); legacy docs used 0xF000)
 - **x0–x1, x3–x7**: Undefined values on reset (not initialized)
 
-> **On the SP reset value:** SP is initialized to 0xF000, the MMIO base — one word
-> *past* the top of usable RAM (0xEFFF). The stack is full-descending with
-> pre-decrement: `PUSH` does `ADDI sp, -2` then `SW rd, 0(sp)`, so the first push
-> writes to 0xEFFE–0xEFFF, the top word of RAM. SP is never dereferenced while it
-> holds 0xF000, so no MMIO access occurs from the initial value.
+> **On the SP reset value:** SP is initialized one word *past* the top of
+> **implemented general memory** (base map: typically `0x8000` so the first push
+> lands at `0x7FFE`–`0x7FFF`). Full-descending, pre-decrement (`PUSH` = `ADDI sp, -2`
+> then `SW`). SP must not sit in the optional page window (`0x8000`–`0xBFFF`) or in
+> MMIO/VRAM (`0xC000`–`0xFFFF`). Details: [docs/MEMORY_MAP.md](docs/MEMORY_MAP.md).
 
 > **Note for RISC-V users:** In ZX16, `x0` is a normal general-purpose register
 > (ABI name `t0`). It is **not** a hardwired-zero register. Writes to `x0` take
@@ -63,17 +63,23 @@ The ZX16 RISC ISA is a 16-bit reduced-instruction-set architecture designed for 
 
 ## Memory Map
 
-| Range         | Usage                                        |
-|:-------------:|:---------------------------------------------|
-| 0x0000–0x001F | Interrupt vector table (16 entries × 2 bytes)|
-| 0x0020–0xEFFF | RAM & ROM                                    |
-| 0xF000–0xFFFF | MMIO (I/O registers start at 0xF000)         |
+> **Base map (ISA/ABI):** portable software uses **general memory only through `0x7FFF`**.  
+> **`0x8000`–`0xBFFF`** is an **optional** page window (not assumed by the base ABI).  
+> **`0xC000`–`0xFFFF`** is reserved for **MMIO and VRAM**.  
+> Full rules: [docs/MEMORY_MAP.md](docs/MEMORY_MAP.md).
+
+| Range         | Usage |
+|:-------------:|:------|
+| 0x0000–0x001F | Interrupt vector table (16 entries × 2 bytes) |
+| 0x0020–0x7FFF | General memory (code, data, heap, stack) |
+| 0x8000–0xBFFF | Optional external page window — **not part of base ABI** |
+| 0xC000–0xFFFF | Reserved: MMIO + VRAM (machine-defined submap) |
 
 ### Memory Properties
 - **Endianness**: Little-endian
 - **Addressing**: Byte-addressable
 - **Alignment**: Word accesses (SW/LW) must be aligned to even addresses
-- **Stack**: Grows downward; SP initialized to 0xF000, first push lands at 0xEFFE
+- **Stack**: Grows downward within general memory; base ABI does **not** place SP in the page window or MMIO. (Classic teaching reset SP=`0xF000` is superseded for the v2 map by SP at the top of implemented general RAM — see [docs/MEMORY_MAP.md](docs/MEMORY_MAP.md).)
 
 ## Interrupt Vector Table
 - 16 fixed entries at 0x0000–0x001E (2 bytes each); each entry is a `J` instruction to
@@ -507,7 +513,7 @@ ADD x0, x0         # x0 = x0 + x0; result discarded into x0, no architectural ef
 
 ### Stack Management
 - Stack grows downward (toward lower addresses)
-- SP is reset to 0xF000; the first push lands at 0xEFFE–0xEFFF
+- SP is reset to the top of implemented general memory (see [docs/MEMORY_MAP.md](docs/MEMORY_MAP.md)); keep the stack out of `0x8000`–`0xFFFF`
 - Keep SP even (word-aligned), since SW/LW require aligned addresses
 - Callee must restore stack pointer before returning
 
