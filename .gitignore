@@ -6,3 +6,6 @@ __pycache__/
 # Compiler intermediate asm at repo root / out dirs — keep machines examples
 *.s
 !machines/**/*.s
+
+# macOS Finder metadata
+.DS_Store
