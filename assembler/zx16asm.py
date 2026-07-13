@@ -703,6 +703,9 @@ class ZX16Assembler:
             if parser.current_token.type == TokenType.DIRECTIVE:
                 directive = parser.current_token.value.lower()
                 parser.advance()
+                # GAS / MARS-style aliases for null-terminated strings
+                if directive in ('.asciiz', '.asciz'):
+                    directive = '.string'
                 
                 if directive == '.org':
                     if parser.current_token.type == TokenType.IMMEDIATE:
@@ -798,8 +801,12 @@ class ZX16Assembler:
                             parser.advance()
                         else:
                             self.add_error("Expected size after .space", line)
+
+                else:
+                    # Do not silently no-op unknown directives (.ifdef, .align, …)
+                    self.add_error(f"Unknown directive '{directive}'", line)
                 
-                # Skip to end of line for other directives
+                # Skip to end of line
                 while (parser.current_token.type not in [TokenType.NEWLINE, TokenType.EOF]):
                     parser.advance()
                 continue
@@ -882,6 +889,8 @@ class ZX16Assembler:
             if parser.current_token.type == TokenType.DIRECTIVE:
                 directive = parser.current_token.value.lower()
                 parser.advance()
+                if directive in ('.asciiz', '.asciz'):
+                    directive = '.string'
                 
                 if directive == '.org':
                     if parser.current_token.type == TokenType.IMMEDIATE:
@@ -952,6 +961,14 @@ class ZX16Assembler:
                         current_section_data.extend([0] * space_size)
                         self.current_address += space_size
                         parser.advance()
+
+                elif directive in ('.equ', '.set', '.global'):
+                    # Fully handled in pass 1; skip operands here.
+                    pass
+
+                else:
+                    # Already reported in pass 1 — do not double-count
+                    pass
                 
                 # Skip remaining tokens on this line
                 while parser.current_token.type not in [TokenType.NEWLINE, TokenType.EOF]:
@@ -1211,9 +1228,14 @@ class ZX16Assembler:
                 rd = 0
                 link = 0
             else:  # jal
-                if len(operands) < 2:
-                    raise SyntaxError("JAL instruction requires 2 operands")
-                rd, target = operands
+                # Accept both `jal rd, target` and `jal target` (rd defaults to ra/x1)
+                if len(operands) == 1:
+                    rd = parser.register_map.get('ra', 1)
+                    target = operands[0]
+                elif len(operands) >= 2:
+                    rd, target = operands[0], operands[1]
+                else:
+                    raise SyntaxError("JAL instruction requires 1 or 2 operands")
                 link = 1
             
             if isinstance(target, str):
