@@ -1313,28 +1313,65 @@ class ZX16Assembler:
 
         else:
             raise SyntaxError(f"Unknown instruction: {mnemonic}")
-    
-    def get_binary_output(self) -> bytes:
-        """Get binary output."""
+
+    def get_binary_output(self, pad_to_full: bool = False) -> bytes:
+        """Get binary output.
+
+        By default, the output is trimmed to the highest address actually
+        used by .text/.data/.bss, instead of always emitting the full 64KB
+        address space padded with zeros (see issue #40). Pass
+        pad_to_full=True to restore the old always-65536-bytes behavior.
+        """
         # Combine all sections
         output = bytearray(65536)  # 64KB memory space
-        
+
         # Write text section
         text_start = self.section_addresses['.text']
         text_data = self.sections['.text']
         output[text_start:text_start + len(text_data)] = text_data
-        
+
         # Write data section
         data_start = self.section_addresses['.data']
         data_data = self.sections['.data']
         output[data_start:data_start + len(data_data)] = data_data
-        
+
         # Write BSS section (zero-filled)
         bss_start = self.section_addresses['.bss']
         bss_data = self.sections['.bss']
         output[bss_start:bss_start + len(bss_data)] = bss_data
-        
-        return bytes(output)
+
+        if pad_to_full:
+            return bytes(output)
+
+        # Trim trailing unused space: only keep bytes up through the last
+        # address actually written by any non-empty section. An empty
+        # section's default base address must not count, or it would inflate
+        # the output even when nothing was ever written there.
+        section_ends = []
+        if text_data:
+            section_ends.append(text_start + len(text_data))
+        if data_data:
+            section_ends.append(data_start + len(data_data))
+        if bss_data:
+            section_ends.append(bss_start + len(bss_data))
+
+        used_end = max(section_ends) if section_ends else 0
+        return bytes(output[:used_end])
+
+        # Trim trailing unused space: only keep bytes up through the last
+        # address actually written by any non-empty section. An empty
+        # section's default base address must not count, or it would inflate
+        # the output even when nothing was ever written there.
+        section_ends = []
+        if text_data:
+            section_ends.append(text_start + len(text_data))
+        if data_data:
+            section_ends.append(data_start + len(data_data))
+        if bss_data:
+            section_ends.append(bss_start + len(bss_data))
+
+        used_end = max(section_ends) if section_ends else 0
+        return bytes(output[:used_end])
     
     def get_intel_hex_output(self) -> str:
         """Get Intel HEX format output."""
@@ -1566,6 +1603,10 @@ def main():
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
     parser.add_argument("--verilog-module", default="program_memory",
                        help="Verilog module name")
+    parser.add_argument("--pad-full", action="store_true",
+                        help="Pad .bin output to the full 64KB address space "
+                             "(old default behavior). By default, .bin output "
+                             "is trimmed to the last used address.")
     parser.add_argument("--mem-sparse", action="store_true",
                        help="Generate sparse memory file")
     
@@ -1613,7 +1654,7 @@ def main():
     
     try:
         if args.format == "bin":
-            output_data = assembler.get_binary_output()
+            output_data = assembler.get_binary_output(pad_to_full=args.pad_full)
             with open(output_file, 'wb') as f:
                 f.write(output_data)
         
